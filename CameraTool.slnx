@@ -4,6 +4,10 @@
   </Folder>
   <Folder Name="/Library/">
     <Project Path="src/CameraTool.Capture/CameraTool.Capture.csproj" />
+    <Project Path="src/CameraTool.Vision/CameraTool.Vision.csproj" />
+  </Folder>
+  <Folder Name="/Test/">
+    <Project Path="tests/CameraTool.Vision.Tests/CameraTool.Vision.Tests.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />

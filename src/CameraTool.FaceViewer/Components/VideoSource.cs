@@ -1,13 +1,13 @@
 namespace CameraTool.FaceViewer.Components;
 
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 using CameraTool.Capture;
 using CameraTool.FaceViewer.Settings;
+using CameraTool.Vision;
 
 using Microsoft.Extensions.Hosting;
-
-public readonly record struct FrameInfo(int Width, int Height, long Sequence, TimeSpan ArrivalTime);
 
 public sealed class VideoSource : IHostedService, IDisposable
 {
@@ -15,43 +15,36 @@ public sealed class VideoSource : IHostedService, IDisposable
 
     private const double FrameRateTolerance = 0.5;
 
-    private const VideoPixelFormat OutputPixelFormat = VideoPixelFormat.Bgra8;
-
     private readonly ILogger<VideoSource> log;
 
     private readonly CameraSettings settings;
 
     private readonly SemaphoreSlim gate = new(1, 1);
 
-    private readonly Lock frameSync = new();
-
     private readonly LatencyCounter captureLatency = new();
+
+    private readonly LatencyCounter processTime = new();
 
     private VideoCapture? capture;
 
     private Task? startupTask;
 
-    private byte[] frameBuffer = [];
-
-    private int frameWidth;
-
-    private int frameHeight;
-
-    private long frameSequence;
-
-    private TimeSpan frameArrivalTime;
-
     private long capturedFrames;
 
     public event EventHandler? StateChanged;
 
-    public event EventHandler? FrameUpdated;
+    // Raised on the capture thread after the frame is stored, the frame is valid only while the handler runs
+    public event EventHandler<FrameCapturedEventArgs>? FrameCaptured;
+
+    public FrameStore Frames { get; } = new();
 
     public IReadOnlyList<VideoDevice> Devices { get; private set; } = [];
 
     public VideoDevice? Device { get; private set; }
 
     public VideoFormat? Format { get; private set; }
+
+    public FrameConversion Conversion { get; private set; }
 
     public VideoPixelFormat Output { get; private set; }
 
@@ -65,6 +58,7 @@ public sealed class VideoSource : IHostedService, IDisposable
     {
         this.log = log;
         this.settings = settings;
+        Conversion = settings.Conversion;
     }
 
     public void Dispose()
@@ -117,7 +111,7 @@ public sealed class VideoSource : IHostedService, IDisposable
             return;
         }
 
-        await StartCaptureAsync(device, format).ConfigureAwait(false);
+        await StartCaptureAsync(device, format, settings.Conversion).ConfigureAwait(false);
     }
 
     //--------------------------------------------------------------------------------
@@ -156,7 +150,7 @@ public sealed class VideoSource : IHostedService, IDisposable
         RaiseStateChanged();
     }
 
-    public async Task StartCaptureAsync(VideoDevice device, VideoFormat format)
+    public async Task StartCaptureAsync(VideoDevice device, VideoFormat format, FrameConversion conversion)
     {
         await gate.WaitAsync().ConfigureAwait(false);
         try
@@ -168,7 +162,7 @@ public sealed class VideoSource : IHostedService, IDisposable
             video.Failed += OnFailed;
             try
             {
-                await video.OpenAsync(format, OutputPixelFormat).ConfigureAwait(false);
+                await video.OpenAsync(format, conversion == FrameConversion.Reader ? VideoPixelFormat.Bgra8 : VideoPixelFormat.Unknown).ConfigureAwait(false);
                 await video.StartAsync().ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is COMException or UnauthorizedAccessException or InvalidOperationException)
@@ -185,10 +179,11 @@ public sealed class VideoSource : IHostedService, IDisposable
             capture = video;
             Device = device;
             Format = format;
+            Conversion = conversion;
             Output = video.OutputPixelFormat;
             IsRunning = true;
             ErrorMessage = null;
-            log.InfoCameraStarted(device.Name, format.ToString(), Output.ToString());
+            log.InfoCameraStarted(device.Name, format.ToString(), Output.ToString(), conversion.ToString());
         }
         finally
         {
@@ -230,97 +225,90 @@ public sealed class VideoSource : IHostedService, IDisposable
     private void RaiseStateChanged() => StateChanged?.Invoke(this, EventArgs.Empty);
 
     //--------------------------------------------------------------------------------
-    // Frame
+    // Statistics
     //--------------------------------------------------------------------------------
-
-    public FrameInfo LatestFrame
-    {
-        get
-        {
-            lock (frameSync)
-            {
-                return new FrameInfo(frameWidth, frameHeight, frameSequence, frameArrivalTime);
-            }
-        }
-    }
-
-    public unsafe bool TryCopyFrame(IntPtr destination, int stride, int width, int height, out FrameInfo info)
-    {
-        lock (frameSync)
-        {
-            info = new FrameInfo(frameWidth, frameHeight, frameSequence, frameArrivalTime);
-            if ((frameWidth != width) || (frameHeight != height) || (frameBuffer.Length == 0))
-            {
-                return false;
-            }
-
-            var rowBytes = width * BytesPerPixel;
-            fixed (byte* source = frameBuffer)
-            {
-                if (stride == rowBytes)
-                {
-                    Buffer.MemoryCopy(source, (void*)destination, (long)stride * height, (long)rowBytes * height);
-                }
-                else
-                {
-                    for (var y = 0; y < height; y++)
-                    {
-                        Buffer.MemoryCopy(source + (y * rowBytes), (byte*)destination + (y * stride), stride, rowBytes);
-                    }
-                }
-            }
-
-            return true;
-        }
-    }
 
     public LatencySnapshot TakeCaptureLatency() => captureLatency.Take();
 
+    public LatencySnapshot TakeProcessTime() => processTime.Take();
+
+    //--------------------------------------------------------------------------------
+    // Frame
+    //--------------------------------------------------------------------------------
+
     private void OnFrameCaptured(object? sender, FrameCapturedEventArgs e)
     {
+        var start = Stopwatch.GetTimestamp();
         var frame = e.Frame;
-        if (frame.PixelFormat != VideoPixelFormat.Bgra8)
+        var slot = Frames.BeginWrite(frame.Width, frame.Height);
+        if (!WriteFrame(frame, slot))
         {
             return;
         }
 
+        slot.Sequence = frame.Sequence;
+        slot.CaptureTime = frame.CaptureTime;
+        slot.ArrivalTime = frame.ArrivalTime;
+        Frames.EndWrite();
+
+        processTime.Add(Stopwatch.GetElapsedTime(start));
+        captureLatency.Add(frame.ArrivalTime - frame.CaptureTime);
+        Interlocked.Increment(ref capturedFrames);
+
+        FrameCaptured?.Invoke(this, e);
+    }
+
+    private static bool WriteFrame(in FrameBuffer frame, FrameSlot slot)
+    {
+        var destination = slot.Data;
+        // YUV without range information is treated as video range
+        var range = frame.ColorRange == VideoColorRange.Full ? YuvRange.Full : YuvRange.Limited;
+        try
+        {
+            switch (frame.PixelFormat)
+            {
+                case VideoPixelFormat.Bgra8:
+                    return CopyBgra(frame, destination, slot.Stride);
+                case VideoPixelFormat.Nv12:
+                    ImageConverter.Nv12ToBgra(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.GetPlaneSpan(frame.Plane1), frame.Plane1.Stride, destination, slot.Stride, frame.Width, frame.Height, range);
+                    return true;
+                case VideoPixelFormat.Yuy2:
+                    ImageConverter.Yuy2ToBgra(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, destination, slot.Stride, frame.Width, frame.Height, range);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+        catch (ArgumentException)
+        {
+            // Unexpected buffer layout
+            return false;
+        }
+    }
+
+    private static bool CopyBgra(in FrameBuffer frame, Span<byte> destination, int stride)
+    {
         var plane = frame.Plane0;
         var rowBytes = frame.Width * BytesPerPixel;
         var source = frame.GetPlaneSpan(plane);
         if ((plane.Stride < rowBytes) || (source.Length < (plane.Stride * (frame.Height - 1)) + rowBytes))
         {
-            return;
+            return false;
         }
 
-        lock (frameSync)
+        if (plane.Stride == stride)
         {
-            var size = rowBytes * frame.Height;
-            if (frameBuffer.Length != size)
+            source[..(stride * frame.Height)].CopyTo(destination);
+        }
+        else
+        {
+            for (var y = 0; y < frame.Height; y++)
             {
-                frameBuffer = new byte[size];
+                source.Slice(y * plane.Stride, rowBytes).CopyTo(destination.Slice(y * stride, rowBytes));
             }
-
-            if (plane.Stride == rowBytes)
-            {
-                source[..size].CopyTo(frameBuffer);
-            }
-            else
-            {
-                for (var y = 0; y < frame.Height; y++)
-                {
-                    source.Slice(y * plane.Stride, rowBytes).CopyTo(frameBuffer.AsSpan(y * rowBytes));
-                }
-            }
-
-            frameWidth = frame.Width;
-            frameHeight = frame.Height;
-            frameSequence = frame.Sequence;
-            frameArrivalTime = frame.ArrivalTime;
         }
 
-        captureLatency.Add(frame.ArrivalTime - frame.CaptureTime);
-        Interlocked.Increment(ref capturedFrames);
-        FrameUpdated?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
     private void OnFailed(object? sender, VideoCaptureFailedEventArgs e)

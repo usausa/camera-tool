@@ -41,8 +41,8 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Warning, Message = "Camera format not supported. device=[{device}], format=[{format}]")]
     public static partial void WarnCameraFormatNotFound(this ILogger logger, string device, string format);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Camera started. device=[{device}], format=[{format}], output=[{output}]")]
-    public static partial void InfoCameraStarted(this ILogger logger, string device, string format, string output);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Camera started. device=[{device}], format=[{format}], output=[{output}], conversion=[{conversion}]")]
+    public static partial void InfoCameraStarted(this ILogger logger, string device, string format, string output, string conversion);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Camera stopped.")]
     public static partial void InfoCameraStopped(this ILogger logger);
@@ -55,4 +55,37 @@ internal static partial class Log
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Camera failed. message=[{message}], code=[0x{code:X8}]")]
     public static partial void ErrorCameraFailed(this ILogger logger, string message, uint code);
+
+    // Detection
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Face detector loaded. model=[{model}], input=[{width}x{height}], elapsed=[{elapsed:F1}ms]")]
+    public static partial void InfoFaceDetectorLoaded(this ILogger logger, string model, int width, int height, double elapsed);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Face detector load failed. model=[{model}]")]
+    public static partial void ErrorFaceDetectorLoadFailed(this ILogger logger, Exception ex, string model);
+
+    // Statistics
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Detection: enabled=[{enabled}], detect=[{detectFps:F1}], preprocess=[{preprocessTime:F3}/{preprocessTimeMax:F3}], inference=[{inferenceTime:F2}/{inferenceTimeMax:F2}], faces=[{faces}]")]
+    public static partial void DebugDetectionStatistics(this ILogger logger, bool enabled, double detectFps, double preprocessTime, double preprocessTimeMax, double inferenceTime, double inferenceTimeMax, int faces);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Statistics: format=[{format}], output=[{output}], update=[{update}], capture=[{captureFps:F1}], display=[{displayFps:F1}], captureLatency=[{captureLatency:F2}/{captureLatencyMax:F2}], process=[{processTime:F3}/{processTimeMax:F3}], displayLatency=[{displayLatency:F2}/{displayLatencyMax:F2}], cpu=[{cpuUsage:F2}], allocated=[{allocated:F1}], gc=[{gc0:F1}/{gc1:F1}/{gc2:F1}]")]
+    public static partial void DebugStatistics(
+        this ILogger logger,
+        string format,
+        string output,
+        string update,
+        double captureFps,
+        double displayFps,
+        double captureLatency,
+        double captureLatencyMax,
+        double processTime,
+        double processTimeMax,
+        double displayLatency,
+        double displayLatencyMax,
+        double cpuUsage,
+        double allocated,
+        double gc0,
+        double gc1,
+        double gc2);
 }

@@ -9,6 +9,8 @@ public readonly struct FrameBuffer : IEquatable<FrameBuffer>
 
     public VideoPixelFormat PixelFormat { get; }
 
+    public VideoColorRange ColorRange { get; }
+
     public int Width { get; }
 
     public int Height { get; }
@@ -31,6 +33,7 @@ public readonly struct FrameBuffer : IEquatable<FrameBuffer>
         IntPtr buffer,
         int length,
         VideoPixelFormat pixelFormat,
+        VideoColorRange colorRange,
         int width,
         int height,
         FramePlane plane0,
@@ -42,6 +45,7 @@ public readonly struct FrameBuffer : IEquatable<FrameBuffer>
         this.buffer = buffer;
         Length = length;
         PixelFormat = pixelFormat;
+        ColorRange = colorRange;
         Width = width;
         Height = height;
         Plane0 = plane0;

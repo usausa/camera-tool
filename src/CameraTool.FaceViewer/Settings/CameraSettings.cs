@@ -1,6 +1,7 @@
 namespace CameraTool.FaceViewer.Settings;
 
 using CameraTool.Capture;
+using CameraTool.FaceViewer.Components;
 
 public sealed class CameraSettings
 {
@@ -17,4 +18,6 @@ public sealed class CameraSettings
 
     [Range(1, 240)]
     public int Fps { get; set; } = 30;
+
+    public FrameConversion Conversion { get; set; } = FrameConversion.Software;
 }

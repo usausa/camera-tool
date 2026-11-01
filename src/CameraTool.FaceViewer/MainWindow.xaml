@@ -4,6 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:s="http://smart/windows"
         xmlns:app="clr-namespace:CameraTool.FaceViewer"
+        xmlns:controls="clr-namespace:CameraTool.FaceViewer.Controls"
         mc:Ignorable="d"
         x:Class="CameraTool.FaceViewer.MainWindow"
         s:DataContextResolver.Type="{x:Type app:MainWindowViewModel}"
@@ -17,7 +18,7 @@
 
         <Style x:Key="PanelHeaderTextBlock"
                TargetType="{x:Type TextBlock}">
-            <Setter Property="Margin" Value="0,16,0,8" />
+            <Setter Property="Margin" Value="0,12,0,6" />
             <Setter Property="FontSize" Value="16" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
@@ -47,15 +48,23 @@
 
         <Style x:Key="StatisticsLabelTextBlock"
                TargetType="{x:Type TextBlock}">
-            <Setter Property="Margin" Value="0,2,12,2" />
+            <Setter Property="Margin" Value="0,1,12,1" />
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
         </Style>
 
         <Style x:Key="StatisticsValueTextBlock"
                TargetType="{x:Type TextBlock}">
-            <Setter Property="Margin" Value="0,2,0,2" />
+            <Setter Property="Margin" Value="0,1,0,1" />
             <Setter Property="HorizontalAlignment" Value="Right" />
             <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
+        </Style>
+
+        <Style x:Key="StatisticsNoteTextBlock"
+               TargetType="{x:Type TextBlock}">
+            <Setter Property="Margin" Value="0,8,0,0" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
 
     </Window.Resources>
@@ -69,8 +78,11 @@
         <!-- Video -->
         <Border Grid.Column="0"
                 Background="Black">
-            <Image Source="{Binding Bitmap}"
-                   Stretch="Uniform" />
+            <Grid>
+                <controls:VideoView Source="{Binding Frames}"
+                                    UpdateMode="{Binding SelectedUpdateMode}" />
+                <controls:FaceBoxOverlay Source="{Binding FaceDetection}" />
+            </Grid>
         </Border>
 
         <!-- Panel -->
@@ -90,6 +102,10 @@
                           ItemsSource="{Binding Formats}"
                           IsEnabled="{Binding IsRunning, Converter={StaticResource ReverseConverter}}"
                           SelectedItem="{Binding SelectedFormat}" />
+                <ComboBox Style="{StaticResource PanelComboBox}"
+                          ItemsSource="{Binding Conversions}"
+                          IsEnabled="{Binding IsRunning, Converter={StaticResource ReverseConverter}}"
+                          SelectedItem="{Binding SelectedConversion}" />
                 <StackPanel Orientation="Horizontal">
                     <Button Style="{StaticResource PanelButton}"
                             Command="{Binding StartCommand}"
@@ -104,6 +120,21 @@
                 <TextBlock Style="{StaticResource ErrorTextBlock}"
                            Text="{Binding ErrorMessage}" />
 
+                <!-- Display -->
+                <TextBlock Style="{StaticResource PanelHeaderTextBlock}"
+                           Text="Display" />
+                <ComboBox Style="{StaticResource PanelComboBox}"
+                          ItemsSource="{Binding UpdateModes}"
+                          SelectedItem="{Binding SelectedUpdateMode}" />
+
+                <!-- Detection -->
+                <TextBlock Style="{StaticResource PanelHeaderTextBlock}"
+                           Text="Detection" />
+                <CheckBox Content="Face detection"
+                          IsChecked="{Binding IsDetectionEnabled}" />
+                <TextBlock Style="{StaticResource ErrorTextBlock}"
+                           Text="{Binding DetectionError}" />
+
                 <!-- Statistics -->
                 <TextBlock Style="{StaticResource PanelHeaderTextBlock}"
                            Text="Statistics" />
@@ -113,6 +144,12 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -166,8 +203,21 @@
 
                     <TextBlock Grid.Row="5" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
-                               Text="Display latency" />
+                               Text="Process" />
                     <TextBlock Grid.Row="5" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
+                                <Binding Path="ProcessTime" />
+                                <Binding Path="ProcessTimeMax" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+
+                    <TextBlock Grid.Row="6" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Display latency" />
+                    <TextBlock Grid.Row="6" Grid.Column="1"
                                Style="{StaticResource StatisticsValueTextBlock}">
                         <TextBlock.Text>
                             <MultiBinding StringFormat="{}{0:F1} / {1:F1} ms">
@@ -177,17 +227,24 @@
                         </TextBlock.Text>
                     </TextBlock>
 
-                    <TextBlock Grid.Row="6" Grid.Column="0"
+                    <TextBlock Grid.Row="7" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="CPU" />
+                    <TextBlock Grid.Row="7" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Text="{Binding CpuUsage, StringFormat={}{0:F1} %}" />
+
+                    <TextBlock Grid.Row="8" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Allocated" />
-                    <TextBlock Grid.Row="6" Grid.Column="1"
+                    <TextBlock Grid.Row="8" Grid.Column="1"
                                Style="{StaticResource StatisticsValueTextBlock}"
                                Text="{Binding AllocatedPerSec, StringFormat={}{0:F1} KB/s}" />
 
-                    <TextBlock Grid.Row="7" Grid.Column="0"
+                    <TextBlock Grid.Row="9" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="GC 0/1/2" />
-                    <TextBlock Grid.Row="7" Grid.Column="1"
+                    <TextBlock Grid.Row="9" Grid.Column="1"
                                Style="{StaticResource StatisticsValueTextBlock}">
                         <TextBlock.Text>
                             <MultiBinding StringFormat="{}{0:F1} / {1:F1} / {2:F1} /s">
@@ -197,12 +254,50 @@
                             </MultiBinding>
                         </TextBlock.Text>
                     </TextBlock>
+
+                    <TextBlock Grid.Row="10" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Detect" />
+                    <TextBlock Grid.Row="10" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Text="{Binding DetectFps, StringFormat={}{0:F1} fps}" />
+
+                    <TextBlock Grid.Row="11" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Preprocess" />
+                    <TextBlock Grid.Row="11" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
+                                <Binding Path="PreprocessTime" />
+                                <Binding Path="PreprocessTimeMax" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+
+                    <TextBlock Grid.Row="12" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Inference" />
+                    <TextBlock Grid.Row="12" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
+                                <Binding Path="InferenceTime" />
+                                <Binding Path="InferenceTimeMax" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+
+                    <TextBlock Grid.Row="13" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Faces" />
+                    <TextBlock Grid.Row="13" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Text="{Binding FaceCount}" />
                 </Grid>
 
-                <TextBlock Margin="0,8,0,0"
-                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                           Text="Latency: average / max"
-                           FontSize="11" />
+                <TextBlock Style="{StaticResource StatisticsNoteTextBlock}"
+                           Text="Latency / Process: average / max" />
 
             </StackPanel>
         </ScrollViewer>

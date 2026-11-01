@@ -2,7 +2,6 @@ namespace CameraTool.Capture;
 
 using System.Globalization;
 
-using Windows.Graphics.Imaging;
 using Windows.Media.Capture;
 using Windows.Media.Capture.Frames;
 
@@ -33,6 +32,9 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
     public VideoFormat Format { get; private set; }
 
     public VideoPixelFormat OutputPixelFormat { get; private set; }
+
+    // Color range of YUV output
+    public VideoColorRange ColorRange { get; private set; }
 
     public VideoCapture(string deviceId)
     {
@@ -80,6 +82,7 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
 
             Format = format;
             OutputPixelFormat = outputPixelFormat == VideoPixelFormat.Unknown ? format.PixelFormat : outputPixelFormat;
+            ColorRange = outputPixelFormat == VideoPixelFormat.Unknown ? FormatHelper.GetColorRange(mediaFormat) : VideoColorRange.Unknown;
             mediaCapture = capture;
             frameReader = reader;
         }
@@ -153,38 +156,24 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
 
         try
         {
-            using var frame = sender.TryAcquireLatestFrame();
-            if (frame is null)
-            {
-                return;
-            }
-
             var arrivalTime = CaptureClock.Now;
-            using var bitmap = frame.VideoMediaFrame?.SoftwareBitmap;
-            if (bitmap is null)
+            using var frame = NativeFrame.AcquireLatest(sender);
+            if (!frame.IsValid)
             {
                 return;
             }
 
-            using var buffer = bitmap.LockBuffer(BitmapBufferAccessMode.Read);
-            using var reference = buffer.CreateReference();
-            if (!MemoryBufferAccessor.TryGetBuffer(reference, out var pointer, out var capacity))
-            {
-                return;
-            }
-
-            var plane0 = ToPlane(buffer.GetPlaneDescription(0));
-            var plane1 = buffer.GetPlaneCount() > 1 ? ToPlane(buffer.GetPlaneDescription(1)) : default;
             frameEventArgs.Frame = new FrameBuffer(
-                pointer,
-                capacity,
-                FormatHelper.FromBitmapPixelFormat(bitmap.BitmapPixelFormat),
-                bitmap.PixelWidth,
-                bitmap.PixelHeight,
-                plane0,
-                plane1,
+                frame.Buffer,
+                frame.Capacity,
+                frame.PixelFormat,
+                ColorRange,
+                frame.Width,
+                frame.Height,
+                frame.Plane0,
+                frame.Plane1,
                 ++sequence,
-                frame.SystemRelativeTime ?? arrivalTime,
+                frame.CaptureTime ?? arrivalTime,
                 arrivalTime);
             FrameCaptured?.Invoke(this, frameEventArgs);
         }
@@ -197,7 +186,4 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
 
     private void OnFailed(MediaCapture sender, MediaCaptureFailedEventArgs args) =>
         Failed?.Invoke(this, new VideoCaptureFailedEventArgs(args.Message, args.Code));
-
-    private static FramePlane ToPlane(BitmapPlaneDescription plane) =>
-        new(plane.StartIndex, plane.Width, plane.Height, plane.Stride);
 }

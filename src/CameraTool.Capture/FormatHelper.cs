@@ -8,6 +8,12 @@ internal static class FormatHelper
 {
     private const double FrameRateTolerance = 0.5;
 
+    private const uint NominalRangeFull = 1;
+
+    private const uint NominalRangeLimited = 2;
+
+    private static readonly Guid NominalRangeKey = new("c21b8ee5-b956-4071-8daf-325edf5cab11");
+
     public static VideoPixelFormat FromSubtype(string subtype) => subtype.ToUpperInvariant() switch
     {
         "NV12" => VideoPixelFormat.Nv12,
@@ -34,6 +40,16 @@ internal static class FormatHelper
 
     public static double ToFrameRate(MediaRatio ratio) =>
         ratio.Denominator == 0 ? 0 : (double)ratio.Numerator / ratio.Denominator;
+
+    public static VideoColorRange GetColorRange(MediaFrameFormat format) =>
+        format.Properties.TryGetValue(NominalRangeKey, out var value) && (value is uint range)
+            ? range switch
+            {
+                NominalRangeFull => VideoColorRange.Full,
+                NominalRangeLimited => VideoColorRange.Limited,
+                _ => VideoColorRange.Unknown
+            }
+            : VideoColorRange.Unknown;
 
     public static VideoFormat ToVideoFormat(MediaFrameFormat format) =>
         new(FromSubtype(format.Subtype), (int)format.VideoFormat.Width, (int)format.VideoFormat.Height, ToFrameRate(format.FrameRate));

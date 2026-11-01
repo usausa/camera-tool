@@ -1,20 +1,24 @@
 namespace CameraTool.FaceViewer;
 
-using System.Windows.Media.Imaging;
+using System.Diagnostics;
 using System.Windows.Threading;
 
 using CameraTool.Capture;
 using CameraTool.FaceViewer.Components;
+using CameraTool.FaceViewer.Controls;
+using CameraTool.FaceViewer.Settings;
 
 // ReSharper disable once ClassNeverInstantiated.Global
 [ObservableGeneratorOption(Reactive = true, ViewModel = true)]
 public sealed partial class MainWindowViewModel : ExtendViewModelBase
 {
-    private const double Dpi = 96;
-
     private const double BytesPerKilobyte = 1024;
 
+    private const int StatisticsLogInterval = 5;
+
     private static readonly TimeSpan StatisticsInterval = TimeSpan.FromSeconds(1);
+
+    private readonly ILogger<MainWindowViewModel> log;
 
     private readonly TimeProvider timeProvider;
 
@@ -24,21 +28,17 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
 
     private readonly DispatcherTimer statisticsTimer;
 
-    private readonly Action updateFrameAction;
-
-    private readonly LatencyCounter displayLatency = new();
-
-    private WriteableBitmap? bitmap;
-
-    private int frameUpdating;
-
-    private long lastSequence;
-
-    private int displayedFrames;
+    private int statisticsCount;
 
     private long lastStatisticsTimestamp;
 
     private long lastCapturedFrames;
+
+    private long lastDisplayedFrames;
+
+    private long lastDetectedFrames;
+
+    private TimeSpan lastProcessorTime;
 
     private long lastAllocatedBytes;
 
@@ -48,8 +48,13 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
 
     private int lastGc2Count;
 
-    [ObservableProperty]
-    public partial WriteableBitmap? Bitmap { get; set; }
+    public FrameStore Frames => videoSource.Frames;
+
+    public FaceDetectionService FaceDetection { get; }
+
+    public IReadOnlyList<FrameConversion> Conversions { get; } = Enum.GetValues<FrameConversion>();
+
+    public IReadOnlyList<VideoUpdateMode> UpdateModes { get; } = Enum.GetValues<VideoUpdateMode>();
 
     [ObservableProperty]
     public partial IReadOnlyList<VideoDevice> Devices { get; set; } = [];
@@ -62,6 +67,12 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
 
     [ObservableProperty]
     public partial VideoFormat? SelectedFormat { get; set; }
+
+    [ObservableProperty]
+    public partial FrameConversion SelectedConversion { get; set; }
+
+    [ObservableProperty]
+    public partial VideoUpdateMode SelectedUpdateMode { get; set; }
 
     [ObservableProperty]
     public partial bool IsRunning { get; set; }
@@ -88,10 +99,19 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     public partial double CaptureLatencyMax { get; set; }
 
     [ObservableProperty]
+    public partial double ProcessTime { get; set; }
+
+    [ObservableProperty]
+    public partial double ProcessTimeMax { get; set; }
+
+    [ObservableProperty]
     public partial double DisplayLatency { get; set; }
 
     [ObservableProperty]
     public partial double DisplayLatencyMax { get; set; }
+
+    [ObservableProperty]
+    public partial double CpuUsage { get; set; }
 
     [ObservableProperty]
     public partial double AllocatedPerSec { get; set; }
@@ -105,18 +125,51 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     [ObservableProperty]
     public partial double Gc2PerSec { get; set; }
 
+    [ObservableProperty]
+    public partial bool IsDetectionEnabled { get; set; }
+
+    [ObservableProperty]
+    public partial string? DetectionError { get; set; }
+
+    [ObservableProperty]
+    public partial double DetectFps { get; set; }
+
+    [ObservableProperty]
+    public partial double PreprocessTime { get; set; }
+
+    [ObservableProperty]
+    public partial double PreprocessTimeMax { get; set; }
+
+    [ObservableProperty]
+    public partial double InferenceTime { get; set; }
+
+    [ObservableProperty]
+    public partial double InferenceTimeMax { get; set; }
+
+    [ObservableProperty]
+    public partial int FaceCount { get; set; }
+
     public IObserveCommand StartCommand { get; }
 
     public IObserveCommand StopCommand { get; }
 
     public IObserveCommand RefreshCommand { get; }
 
-    public MainWindowViewModel(TimeProvider timeProvider, VideoSource videoSource)
+    public MainWindowViewModel(
+        ILogger<MainWindowViewModel> log,
+        TimeProvider timeProvider,
+        DisplaySettings displaySettings,
+        VideoSource videoSource,
+        FaceDetectionService faceDetection)
     {
+        this.log = log;
         this.timeProvider = timeProvider;
         this.videoSource = videoSource;
+        FaceDetection = faceDetection;
         dispatcher = Application.Current.Dispatcher;
-        updateFrameAction = UpdateFrame;
+        SelectedConversion = videoSource.Conversion;
+        SelectedUpdateMode = displaySettings.UpdateMode;
+        IsDetectionEnabled = faceDetection.IsEnabled;
 
         StartCommand = MakeAsyncCommand(StartAsync, () => !IsRunning && (SelectedDevice is not null) && (SelectedFormat is not null));
         StopCommand = MakeAsyncCommand(videoSource.StopCaptureAsync, () => IsRunning);
@@ -127,9 +180,9 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
             Formats = x?.Formats ?? [];
             SelectedFormat = x is null ? null : videoSource.FindPreferredFormat(x);
         });
+        SubscribeIsDetectionEnabled(x => faceDetection.IsEnabled = x);
 
         videoSource.StateChanged += OnStateChanged;
-        videoSource.FrameUpdated += OnFrameUpdated;
 
         statisticsTimer = new DispatcherTimer { Interval = StatisticsInterval };
         statisticsTimer.Tick += OnStatisticsTick;
@@ -146,7 +199,6 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
             statisticsTimer.Stop();
             statisticsTimer.Tick -= OnStatisticsTick;
             videoSource.StateChanged -= OnStateChanged;
-            videoSource.FrameUpdated -= OnFrameUpdated;
         }
 
         base.Dispose(disposing);
@@ -157,7 +209,7 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     //--------------------------------------------------------------------------------
 
     private Task StartAsync() =>
-        (SelectedDevice is { } device) && (SelectedFormat is { } format) ? videoSource.StartCaptureAsync(device, format) : Task.CompletedTask;
+        (SelectedDevice is { } device) && (SelectedFormat is { } format) ? videoSource.StartCaptureAsync(device, format, SelectedConversion) : Task.CompletedTask;
 
     //--------------------------------------------------------------------------------
     // State
@@ -182,8 +234,9 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         if (videoSource.IsRunning && (videoSource.Format is { } format))
         {
             SelectedFormat = format;
+            SelectedConversion = videoSource.Conversion;
             RunningFormat = format.ToString();
-            RunningOutput = videoSource.Output.ToString().ToUpperInvariant();
+            RunningOutput = String.Create(CultureInfo.InvariantCulture, $"{videoSource.Output.ToString().ToUpperInvariant()} ({videoSource.Conversion})");
         }
         else
         {
@@ -196,51 +249,6 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     }
 
     //--------------------------------------------------------------------------------
-    // Frame
-    //--------------------------------------------------------------------------------
-
-    private void OnFrameUpdated(object? sender, EventArgs e)
-    {
-        if (Interlocked.Exchange(ref frameUpdating, 1) == 0)
-        {
-            dispatcher.InvokeAsync(updateFrameAction, DispatcherPriority.Render);
-        }
-    }
-
-    private void UpdateFrame()
-    {
-        Interlocked.Exchange(ref frameUpdating, 0);
-
-        var info = videoSource.LatestFrame;
-        if ((info.Width <= 0) || (info.Height <= 0) || (info.Sequence == lastSequence))
-        {
-            return;
-        }
-
-        if ((bitmap is null) || (bitmap.PixelWidth != info.Width) || (bitmap.PixelHeight != info.Height))
-        {
-            bitmap = new WriteableBitmap(info.Width, info.Height, Dpi, Dpi, PixelFormats.Bgr32, null);
-            Bitmap = bitmap;
-        }
-
-        bitmap.Lock();
-        try
-        {
-            if (videoSource.TryCopyFrame(bitmap.BackBuffer, bitmap.BackBufferStride, bitmap.PixelWidth, bitmap.PixelHeight, out var copied))
-            {
-                bitmap.AddDirtyRect(new Int32Rect(0, 0, bitmap.PixelWidth, bitmap.PixelHeight));
-                lastSequence = copied.Sequence;
-                displayedFrames++;
-                displayLatency.Add(CaptureClock.Now - copied.ArrivalTime);
-            }
-        }
-        finally
-        {
-            bitmap.Unlock();
-        }
-    }
-
-    //--------------------------------------------------------------------------------
     // Statistics
     //--------------------------------------------------------------------------------
 
@@ -248,6 +256,9 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     {
         lastStatisticsTimestamp = timeProvider.GetTimestamp();
         lastCapturedFrames = videoSource.CapturedFrames;
+        lastDisplayedFrames = videoSource.Frames.DisplayedFrames;
+        lastDetectedFrames = FaceDetection.DetectedFrames;
+        lastProcessorTime = GetProcessorTime();
         lastAllocatedBytes = GC.GetTotalAllocatedBytes();
         lastGc0Count = GC.CollectionCount(0);
         lastGc1Count = GC.CollectionCount(1);
@@ -264,16 +275,33 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         }
 
         var capturedFrames = videoSource.CapturedFrames;
+        var displayedFrames = videoSource.Frames.DisplayedFrames;
         CaptureFps = (capturedFrames - lastCapturedFrames) / elapsed;
-        DisplayFps = displayedFrames / elapsed;
-        displayedFrames = 0;
+        DisplayFps = (displayedFrames - lastDisplayedFrames) / elapsed;
 
         var capture = videoSource.TakeCaptureLatency();
         CaptureLatency = capture.Average.TotalMilliseconds;
         CaptureLatencyMax = capture.Max.TotalMilliseconds;
-        var display = displayLatency.Take();
+        var process = videoSource.TakeProcessTime();
+        ProcessTime = process.Average.TotalMilliseconds;
+        ProcessTimeMax = process.Max.TotalMilliseconds;
+        var display = videoSource.Frames.TakeDisplayLatency();
         DisplayLatency = display.Average.TotalMilliseconds;
         DisplayLatencyMax = display.Max.TotalMilliseconds;
+
+        var detectedFrames = FaceDetection.DetectedFrames;
+        DetectFps = (detectedFrames - lastDetectedFrames) / elapsed;
+        var preprocess = FaceDetection.TakePreprocessTime();
+        PreprocessTime = preprocess.Average.TotalMilliseconds;
+        PreprocessTimeMax = preprocess.Max.TotalMilliseconds;
+        var inference = FaceDetection.TakeInferenceTime();
+        InferenceTime = inference.Average.TotalMilliseconds;
+        InferenceTimeMax = inference.Max.TotalMilliseconds;
+        FaceCount = FaceDetection.FaceCount;
+        DetectionError = FaceDetection.ErrorMessage;
+
+        var processorTime = GetProcessorTime();
+        CpuUsage = (processorTime - lastProcessorTime).TotalSeconds / elapsed / Environment.ProcessorCount * 100;
 
         var allocatedBytes = GC.GetTotalAllocatedBytes();
         AllocatedPerSec = (allocatedBytes - lastAllocatedBytes) / BytesPerKilobyte / elapsed;
@@ -287,9 +315,48 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
 
         lastStatisticsTimestamp = timestamp;
         lastCapturedFrames = capturedFrames;
+        lastDisplayedFrames = displayedFrames;
+        lastDetectedFrames = detectedFrames;
+        lastProcessorTime = processorTime;
         lastAllocatedBytes = allocatedBytes;
         lastGc0Count = gc0Count;
         lastGc1Count = gc1Count;
         lastGc2Count = gc2Count;
+
+        statisticsCount++;
+        if (IsRunning && (statisticsCount % StatisticsLogInterval == 0))
+        {
+            log.DebugStatistics(
+                RunningFormat ?? string.Empty,
+                RunningOutput ?? string.Empty,
+                SelectedUpdateMode.ToString(),
+                CaptureFps,
+                DisplayFps,
+                CaptureLatency,
+                CaptureLatencyMax,
+                ProcessTime,
+                ProcessTimeMax,
+                DisplayLatency,
+                DisplayLatencyMax,
+                CpuUsage,
+                AllocatedPerSec,
+                Gc0PerSec,
+                Gc1PerSec,
+                Gc2PerSec);
+            log.DebugDetectionStatistics(
+                IsDetectionEnabled,
+                DetectFps,
+                PreprocessTime,
+                PreprocessTimeMax,
+                InferenceTime,
+                InferenceTimeMax,
+                FaceCount);
+        }
+    }
+
+    private static TimeSpan GetProcessorTime()
+    {
+        using var process = Process.GetCurrentProcess();
+        return process.TotalProcessorTime;
     }
 }
