@@ -1,4 +1,10 @@
 <Solution>
+  <Folder Name="/Application/">
+    <Project Path="src/CameraTool.FaceViewer/CameraTool.FaceViewer.csproj" />
+  </Folder>
+  <Folder Name="/Library/">
+    <Project Path="src/CameraTool.Capture/CameraTool.Capture.csproj" />
+  </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
     <File Path=".gitattributes" />

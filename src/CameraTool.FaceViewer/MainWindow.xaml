@@ -1,0 +1,210 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:s="http://smart/windows"
+        xmlns:app="clr-namespace:CameraTool.FaceViewer"
+        mc:Ignorable="d"
+        x:Class="CameraTool.FaceViewer.MainWindow"
+        s:DataContextResolver.Type="{x:Type app:MainWindowViewModel}"
+        d:DataContext="{d:DesignInstance Type={x:Type app:MainWindowViewModel}}"
+        Width="1280" Height="800" MinWidth="960" MinHeight="600"
+        Title="Face Viewer">
+
+    <Window.Resources>
+
+        <!-- Panel -->
+
+        <Style x:Key="PanelHeaderTextBlock"
+               TargetType="{x:Type TextBlock}">
+            <Setter Property="Margin" Value="0,16,0,8" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style x:Key="PanelComboBox"
+               TargetType="{x:Type ComboBox}"
+               BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+
+        <Style x:Key="PanelButton"
+               TargetType="{x:Type Button}"
+               BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Width" Value="88" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+        </Style>
+
+        <Style x:Key="ErrorTextBlock"
+               TargetType="{x:Type TextBlock}">
+            <Setter Property="Margin" Value="0,8,0,0" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <!-- Statistics -->
+
+        <Style x:Key="StatisticsLabelTextBlock"
+               TargetType="{x:Type TextBlock}">
+            <Setter Property="Margin" Value="0,2,12,2" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+        </Style>
+
+        <Style x:Key="StatisticsValueTextBlock"
+               TargetType="{x:Type TextBlock}">
+            <Setter Property="Margin" Value="0,2,0,2" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
+        </Style>
+
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="320" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Video -->
+        <Border Grid.Column="0"
+                Background="Black">
+            <Image Source="{Binding Bitmap}"
+                   Stretch="Uniform" />
+        </Border>
+
+        <!-- Panel -->
+        <ScrollViewer Grid.Column="1"
+                      VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="16,0,16,16">
+
+                <!-- Camera -->
+                <TextBlock Style="{StaticResource PanelHeaderTextBlock}"
+                           Text="Camera" />
+                <ComboBox Style="{StaticResource PanelComboBox}"
+                          ItemsSource="{Binding Devices}"
+                          IsEnabled="{Binding IsRunning, Converter={StaticResource ReverseConverter}}"
+                          DisplayMemberPath="Name"
+                          SelectedItem="{Binding SelectedDevice}" />
+                <ComboBox Style="{StaticResource PanelComboBox}"
+                          ItemsSource="{Binding Formats}"
+                          IsEnabled="{Binding IsRunning, Converter={StaticResource ReverseConverter}}"
+                          SelectedItem="{Binding SelectedFormat}" />
+                <StackPanel Orientation="Horizontal">
+                    <Button Style="{StaticResource PanelButton}"
+                            Command="{Binding StartCommand}"
+                            Content="Start" />
+                    <Button Style="{StaticResource PanelButton}"
+                            Command="{Binding StopCommand}"
+                            Content="Stop" />
+                    <Button Style="{StaticResource PanelButton}"
+                            Command="{Binding RefreshCommand}"
+                            Content="Refresh" />
+                </StackPanel>
+                <TextBlock Style="{StaticResource ErrorTextBlock}"
+                           Text="{Binding ErrorMessage}" />
+
+                <!-- Statistics -->
+                <TextBlock Style="{StaticResource PanelHeaderTextBlock}"
+                           Text="Statistics" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Format" />
+                    <TextBlock Grid.Row="0" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Text="{Binding RunningFormat, TargetNullValue='-'}" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Output" />
+                    <TextBlock Grid.Row="1" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Text="{Binding RunningOutput, TargetNullValue='-'}" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Capture" />
+                    <TextBlock Grid.Row="2" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Text="{Binding CaptureFps, StringFormat={}{0:F1} fps}" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Display" />
+                    <TextBlock Grid.Row="3" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Text="{Binding DisplayFps, StringFormat={}{0:F1} fps}" />
+
+                    <TextBlock Grid.Row="4" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Capture latency" />
+                    <TextBlock Grid.Row="4" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0:F1} / {1:F1} ms">
+                                <Binding Path="CaptureLatency" />
+                                <Binding Path="CaptureLatencyMax" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+
+                    <TextBlock Grid.Row="5" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Display latency" />
+                    <TextBlock Grid.Row="5" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0:F1} / {1:F1} ms">
+                                <Binding Path="DisplayLatency" />
+                                <Binding Path="DisplayLatencyMax" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+
+                    <TextBlock Grid.Row="6" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Allocated" />
+                    <TextBlock Grid.Row="6" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Text="{Binding AllocatedPerSec, StringFormat={}{0:F1} KB/s}" />
+
+                    <TextBlock Grid.Row="7" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="GC 0/1/2" />
+                    <TextBlock Grid.Row="7" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0:F1} / {1:F1} / {2:F1} /s">
+                                <Binding Path="Gc0PerSec" />
+                                <Binding Path="Gc1PerSec" />
+                                <Binding Path="Gc2PerSec" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                </Grid>
+
+                <TextBlock Margin="0,8,0,0"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                           Text="Latency: average / max"
+                           FontSize="11" />
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>
