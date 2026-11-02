@@ -1,5 +1,7 @@
 namespace CameraTool.Vision;
 
+using System.Runtime.Intrinsics.X86;
+
 public sealed class TensorConverterTests
 {
     private const double Tolerance = 1e-5;
@@ -109,6 +111,94 @@ public sealed class TensorConverterTests
         var tensor = new float[(3 * 2 * 2) - 1];
 
         Assert.Throws<ArgumentException>(() => TensorConverter.Nv12ToTensor(y, 4, uv, 4, 4, 4, YuvRange.Limited, tensor, 2, 2));
+    }
+
+    //--------------------------------------------------------------------------------
+    // SIMD
+    //--------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(640, 480, 320, 240, 0)]
+    [InlineData(1280, 720, 320, 240, 16)]
+    [InlineData(1920, 1080, 320, 240, 0)]
+    [InlineData(33, 17, 20, 9, 3)]
+    [InlineData(200, 100, 130, 70, 5)]
+    [InlineData(64, 48, 100, 80, 0)]
+    public void BgraSimdMatchesScalar(int width, int height, int destinationWidth, int destinationHeight, int padding)
+    {
+        Assert.SkipUnless(Avx2.IsSupported, "AVX2 is not supported.");
+
+        // Arrange
+        var stride = (width * 4) + padding;
+        var bgra = TestData.CreateRandom(stride * height, 1);
+        var expected = new float[3 * destinationWidth * destinationHeight];
+        var actual = new float[expected.Length];
+
+        // Act
+        TensorConverter.BgraToTensor(bgra, stride, width, height, expected, destinationWidth, destinationHeight, false);
+        TensorConverter.BgraToTensor(bgra, stride, width, height, actual, destinationWidth, destinationHeight, true);
+
+        // Assert
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData(640, 480, 320, 240, 0)]
+    [InlineData(1280, 720, 320, 240, 16)]
+    [InlineData(1920, 1080, 320, 240, 0)]
+    [InlineData(33, 17, 20, 9, 3)]
+    [InlineData(200, 100, 130, 70, 5)]
+    [InlineData(64, 48, 100, 80, 0)]
+    public void Nv12SimdMatchesScalar(int width, int height, int destinationWidth, int destinationHeight, int padding)
+    {
+        Assert.SkipUnless(Avx2.IsSupported, "AVX2 is not supported.");
+
+        // Arrange
+        var yStride = width + padding;
+        var uvStride = (((width + 1) / 2) * 2) + padding;
+        var y = TestData.CreateRandom(yStride * height, 2);
+        var uv = TestData.CreateRandom(uvStride * ((height + 1) / 2), 3);
+
+        foreach (var range in Enum.GetValues<YuvRange>())
+        {
+            var expected = new float[3 * destinationWidth * destinationHeight];
+            var actual = new float[expected.Length];
+
+            // Act
+            TensorConverter.Nv12ToTensor(y, yStride, uv, uvStride, width, height, range, expected, destinationWidth, destinationHeight, false);
+            TensorConverter.Nv12ToTensor(y, yStride, uv, uvStride, width, height, range, actual, destinationWidth, destinationHeight, true);
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    [Theory]
+    [InlineData(640, 480, 320, 240, 0)]
+    [InlineData(320, 240, 320, 240, 8)]
+    [InlineData(33, 17, 20, 9, 3)]
+    [InlineData(200, 100, 130, 70, 5)]
+    [InlineData(64, 48, 100, 80, 0)]
+    public void Yuy2SimdMatchesScalar(int width, int height, int destinationWidth, int destinationHeight, int padding)
+    {
+        Assert.SkipUnless(Avx2.IsSupported, "AVX2 is not supported.");
+
+        // Arrange
+        var stride = (((width + 1) / 2) * 4) + padding;
+        var source = TestData.CreateRandom(stride * height, 4);
+
+        foreach (var range in Enum.GetValues<YuvRange>())
+        {
+            var expected = new float[3 * destinationWidth * destinationHeight];
+            var actual = new float[expected.Length];
+
+            // Act
+            TensorConverter.Yuy2ToTensor(source, stride, width, height, range, expected, destinationWidth, destinationHeight, false);
+            TensorConverter.Yuy2ToTensor(source, stride, width, height, range, actual, destinationWidth, destinationHeight, true);
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
     }
 
     //--------------------------------------------------------------------------------

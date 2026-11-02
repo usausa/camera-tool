@@ -15,6 +15,8 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
 
     private MediaFrameReader? frameReader;
 
+    private FrameArrivedSubscription? frameArrived;
+
     private int processing;
 
     private long sequence;
@@ -57,6 +59,7 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
                     throw new InvalidOperationException("Device not found.");
 
         var capture = new MediaCapture();
+        MediaFrameReader? reader = null;
         try
         {
             await capture.InitializeAsync(new MediaCaptureInitializationSettings
@@ -73,11 +76,11 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
                               throw new InvalidOperationException("Format not supported.");
             await source.SetFormatAsync(mediaFormat).AsTask().ConfigureAwait(false);
 
-            var reader = outputPixelFormat == VideoPixelFormat.Unknown
+            reader = outputPixelFormat == VideoPixelFormat.Unknown
                 ? await capture.CreateFrameReaderAsync(source).AsTask().ConfigureAwait(false)
                 : await capture.CreateFrameReaderAsync(source, FormatHelper.ToSubtype(outputPixelFormat)).AsTask().ConfigureAwait(false);
             reader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Realtime;
-            reader.FrameArrived += OnFrameArrived;
+            frameArrived = FrameArrivedSubscription.Subscribe(reader, OnFrameArrived);
             capture.Failed += OnFailed;
 
             Format = format;
@@ -88,6 +91,7 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
         }
         catch
         {
+            reader?.Dispose();
             capture.Dispose();
             throw;
         }
@@ -133,7 +137,8 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
 
         if (frameReader is not null)
         {
-            frameReader.FrameArrived -= OnFrameArrived;
+            frameArrived?.Dispose();
+            frameArrived = null;
             frameReader.Dispose();
             frameReader = null;
         }
@@ -146,7 +151,8 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
         }
     }
 
-    private void OnFrameArrived(MediaFrameReader sender, MediaFrameArrivedEventArgs args)
+    // reader: IMediaFrameReader
+    private void OnFrameArrived(IntPtr reader)
     {
         // Realtime mode: skip if the previous frame is still being processed
         if (Interlocked.Exchange(ref processing, 1) != 0)
@@ -157,7 +163,7 @@ public sealed class VideoCapture : IAsyncDisposable, IDisposable
         try
         {
             var arrivalTime = CaptureClock.Now;
-            using var frame = NativeFrame.AcquireLatest(sender);
+            using var frame = NativeFrame.AcquireLatest(reader);
             if (!frame.IsValid)
             {
                 return;

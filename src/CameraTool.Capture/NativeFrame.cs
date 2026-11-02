@@ -3,9 +3,6 @@ namespace CameraTool.Capture;
 using System.Runtime.InteropServices;
 
 using Windows.Graphics.Imaging;
-using Windows.Media.Capture.Frames;
-
-using WinRT;
 
 // Reads the latest frame through the COM vtable without creating projection objects.
 // Getting SoftwareBitmap through the projection adds GC memory pressure and induces gen2 GC.
@@ -61,10 +58,10 @@ internal unsafe ref struct NativeFrame
 
     public readonly bool IsValid => Buffer != IntPtr.Zero;
 
-    public static NativeFrame AcquireLatest(MediaFrameReader reader)
+    public static NativeFrame AcquireLatest(IntPtr reader)
     {
         var result = default(NativeFrame);
-        if (Marshal.QueryInterface(((IWinRTObject)reader).NativeObject.ThisPtr, in IidMediaFrameReader, out var pointer) >= 0)
+        if (Marshal.QueryInterface(reader, in IidMediaFrameReader, out var pointer) >= 0)
         {
             result.Acquire(pointer);
             Marshal.Release(pointer);
