@@ -1,6 +1,5 @@
 namespace CameraTool.FaceViewer;
 
-using System.Diagnostics;
 using System.Windows.Threading;
 
 using CameraTool.Capture;
@@ -381,7 +380,7 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         lastDisplayedFrames = videoSource.Frames.DisplayedFrames;
         lastDetectedFrames = FaceDetection.DetectedFrames;
         lastObjectFrames = ObjectDetection.DetectedFrames;
-        lastProcessorTime = GetProcessorTime();
+        lastProcessorTime = Environment.CpuUsage.TotalTime;
         lastAllocatedBytes = GC.GetTotalAllocatedBytes();
         lastGc0Count = GC.CollectionCount(0);
         lastGc1Count = GC.CollectionCount(1);
@@ -441,7 +440,8 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         ObjectError = ObjectDetection.ErrorMessage;
         AreaError = Area.ErrorMessage;
 
-        var processorTime = GetProcessorTime();
+        // Without allocation, unlike Process.GetCurrentProcess
+        var processorTime = Environment.CpuUsage.TotalTime;
         CpuUsage = (processorTime - lastProcessorTime).TotalSeconds / elapsed / Environment.ProcessorCount * 100;
 
         var allocatedBytes = GC.GetTotalAllocatedBytes();
@@ -525,11 +525,5 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
             .OrderByDescending(static x => x.Count())
             .Select(static x => String.Create(CultureInfo.InvariantCulture, $"{ObjectLabels.Names[x.Key]} {x.Count()}"));
         return String.Create(CultureInfo.InvariantCulture, $"{count} ({String.Join(", ", classes)})");
-    }
-
-    private static TimeSpan GetProcessorTime()
-    {
-        using var process = Process.GetCurrentProcess();
-        return process.TotalProcessorTime;
     }
 }

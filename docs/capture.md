@@ -59,4 +59,4 @@ FaceViewer は MediaFrameReader でフレームを受け取り、BGRA に変換�
 - **色レンジ**: YUY2 はリミテッド(16-235)、MJPG 由来の NV12 はフル(0-255)で、どちらも BT.601。自前で変換するときは `MF_MT_VIDEO_NOMINAL_RANGE` に従う(取り違えると白飛び・黒つぶれ)
 - **変換方式**: AVX2 の自前変換は 1080p でも 1 ms 以下。CPU は MediaFrameReader の BGRA8 変換の 1/2〜1/3 で、遅延は同じ。既定は `Software`
 - **表示の更新方式**: `Rendering` は描画ティックまで待つので平均約12 ms 遅れ、取りこぼしも出る。既定は `Immediate`
-- **残りの割当(約120〜130 KB/s)**: 約6割は計測値パネルの文字描画(1秒ごと)、約3割はフレームごとの Dispatcher 呼び出し。映像の経路は1フレーム約1.7 KB。WinRT のイベント引数の分は後でなくした([追加の改善](improvements.md))
+- **残りの割当(約120〜130 KB/s)**: 約6割は計測値パネルの文字描画(1秒ごと)、約3割はフレームごとの Dispatcher 呼び出し。映像の経路は1フレーム約1.7 KB。WinRT のイベント引数と Dispatcher 呼び出しの分は後でなくした([追加の改善](improvements.md))

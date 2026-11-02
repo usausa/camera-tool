@@ -67,6 +67,7 @@ public static class ApplicationExtensions
 
         // Components (the frame is handled in the order of the H.264 stream, the JPEG stream, the motion, the face and the object detection.
         // The H.264 stream only passes the frame to its encoder thread, so it goes first and does not wait for the JPEG encode)
+        builder.Services.AddSingleton<ICameraProvider, CameraProvider>();
         builder.Services.AddSingleton<VideoSource>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<VideoSource>());
         builder.Services.AddSingleton<AreaService>();

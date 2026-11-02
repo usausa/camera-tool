@@ -17,7 +17,7 @@ public sealed class FrameHeaderWriterTests
     {
         // Arrange (only the motion detection is enabled, the services are created but not started)
         var hubs = new StreamHubs();
-        using var source = new VideoSource(NullLogger<VideoSource>.Instance, new CameraSettings());
+        using var source = new VideoSource(NullLogger<VideoSource>.Instance, new CameraSettings(), new TestCameraProvider());
         var area = new AreaService(NullLogger<AreaService>.Instance, new AreaSettings { Path = AreaPath });
         var detectSettings = new DetectSettings { Enable = false };
         var motion = new MotionService(NullLogger<MotionService>.Instance, new MotionSettings(), detectSettings, source, hubs, area);

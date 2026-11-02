@@ -5,7 +5,7 @@ using System.Globalization;
 using Windows.Media.Capture;
 using Windows.Media.Capture.Frames;
 
-public sealed class VideoCapture : IAsyncDisposable, IDisposable
+public sealed class VideoCapture : IVideoCapture
 {
     private static readonly TimeSpan StopWaitInterval = TimeSpan.FromMilliseconds(1);
 

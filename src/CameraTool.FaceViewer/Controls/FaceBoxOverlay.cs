@@ -1,7 +1,5 @@
 namespace CameraTool.FaceViewer.Controls;
 
-using System.Windows.Threading;
-
 using BunnyTail.XamlProperty;
 
 using CameraTool.FaceViewer.Components;
@@ -29,20 +27,18 @@ public sealed partial class FaceBoxOverlay : FrameworkElement
         static key => String.Create(CultureInfo.InvariantCulture, $"{key}%"),
         static _ => BoxBrush);
 
-    private readonly Action updateRequestedAction;
+    private readonly UpdateRequest updateRequest;
 
     private FaceDetectionService? attachedSource;
 
     private FaceDetectionInfo info;
-
-    private int updatePending;
 
     [DependencyProperty(PropertyChanged = nameof(OnSourceChanged))]
     public partial FaceDetectionService? Source { get; set; }
 
     public FaceBoxOverlay()
     {
-        updateRequestedAction = OnUpdateRequested;
+        updateRequest = new UpdateRequest(UpdateBoxes);
 
         // Create children before setting properties that enumerate them
         visuals = new VisualCollection(this) { boxVisual };
@@ -152,19 +148,7 @@ public sealed partial class FaceBoxOverlay : FrameworkElement
     }
 
     // Detection thread
-    private void OnDetected(object? sender, EventArgs e)
-    {
-        if (Interlocked.Exchange(ref updatePending, 1) == 0)
-        {
-            Dispatcher.PostWithoutContext(updateRequestedAction, DispatcherPriority.Render);
-        }
-    }
-
-    private void OnUpdateRequested()
-    {
-        Volatile.Write(ref updatePending, 0);
-        UpdateBoxes();
-    }
+    private void OnDetected(object? sender, EventArgs e) => updateRequest.Request();
 
     private void UpdateBoxes()
     {

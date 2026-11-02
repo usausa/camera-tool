@@ -122,6 +122,7 @@ public static class StreamEndpoints
     private static async Task SendAsync(WebSocket socket, FrameSubscription subscription, H264StreamService? h264, CancellationToken cancellationToken)
     {
         var keyFrameGate = h264 is not null ? new KeyFrameGate() : null;
+        using var sender = new FrameSender(socket, cancellationToken);
         h264?.RequestKeyFrame();
         try
         {
@@ -137,7 +138,7 @@ public static class StreamEndpoints
                         continue;
                     }
 
-                    await socket.SendAsync(frame.Message, WebSocketMessageType.Binary, true, cancellationToken);
+                    await sender.SendAsync(frame.Message);
                     subscription.Complete(frame);
                 }
                 finally
@@ -258,6 +259,53 @@ public static class StreamEndpoints
         finally
         {
             frame.Release();
+        }
+    }
+
+    // Sends a WebSocket frame without the token: with a cancelable token, ManagedWebSocket takes its slower path for each send
+    // (an asynchronous wait and a registration, and the send buffer goes back to the pool on another thread, which allocates).
+    // A send in progress when the token is canceled is stopped by aborting the connection, as ManagedWebSocket does.
+    private sealed class FrameSender : IDisposable
+    {
+        private readonly WebSocket socket;
+
+        private readonly CancellationToken cancellationToken;
+
+        private readonly CancellationTokenRegistration registration;
+
+        private int sending;
+
+        public FrameSender(WebSocket socket, CancellationToken cancellationToken)
+        {
+            this.socket = socket;
+            this.cancellationToken = cancellationToken;
+            registration = cancellationToken.UnsafeRegister(static state => ((FrameSender)state!).OnCanceled(), this);
+        }
+
+        public void Dispose() => registration.Dispose();
+
+        public async ValueTask SendAsync(ReadOnlyMemory<byte> message)
+        {
+            // Full fence: either the cancel sees the send, or the send sees the cancel
+            Interlocked.Exchange(ref sending, 1);
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await socket.SendAsync(message, WebSocketMessageType.Binary, true, CancellationToken.None);
+            }
+            finally
+            {
+                Volatile.Write(ref sending, 0);
+            }
+        }
+
+        // Not while waiting for a frame, so that the connection is closed normally
+        private void OnCanceled()
+        {
+            if (Volatile.Read(ref sending) == 1)
+            {
+                socket.Abort();
+            }
         }
     }
 }

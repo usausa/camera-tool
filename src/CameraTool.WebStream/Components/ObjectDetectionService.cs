@@ -138,7 +138,8 @@ public sealed class ObjectDetectionService : IHostedService, IDisposable
             IsBackground = true,
             Name = "Object detection"
         };
-        thread.Start();
+        // The thread does not use the execution context of the host, so it is not captured
+        thread.UnsafeStart();
         if (enabled)
         {
             signal.Set();

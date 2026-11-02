@@ -130,7 +130,8 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
             IsBackground = true,
             Name = "Face detection"
         };
-        thread.Start();
+        // The thread does not use the execution context of the host, so it is not captured
+        thread.UnsafeStart();
         return Task.CompletedTask;
     }
 

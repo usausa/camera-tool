@@ -37,5 +37,5 @@ FrameArrived (取込スレッド)
 - **1スレッドでもカメラと同じ約30fps**(推論 約8 ms)。Capture latency と Display latency は変わらない
 - **推論のスレッドを増やすと CPU が大きく増える**: 4スレッドで推論は約4.5 ms になるが、ONNX Runtime のスピン待ちで CPU は約10倍、表示も時々遅れる。既定は1スレッド
 - **前処理は約0.9 ms**: 入力は 320x240 固定なので、解像度にほぼ依存しない。後で AVX2 にして約0.3 ms([追加の改善](improvements.md))
-- **割当は検出で約 +80〜90 KB/s**(顔枠の更新と Dispatcher)。ラベルを毎回 `FormattedText` で描くと +150〜230 KB/s、図形にして `DrawImage` で描くと約 1.7 MB/s になったので、子 Visual にした
+- **割当は検出で約 +80〜90 KB/s**(顔枠の更新と Dispatcher)。ラベルを毎回 `FormattedText` で描くと +150〜230 KB/s、図形にして `DrawImage` で描くと約 1.7 MB/s になったので、子 Visual にした。Dispatcher の分は後でなくした([追加の改善](improvements.md))
 - **モデルは古い形式**: 重みがグラフ入力にも入っていて、ONNX Runtime の定数畳み込みなどが効かない(警告はログレベルで抑えている)。重みを外せば速くなる可能性がある

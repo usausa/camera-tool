@@ -1,7 +1,5 @@
 namespace CameraTool.WebStream.Components;
 
-using System.Diagnostics;
-
 // Statistics updated every second
 public sealed class StatusService : BackgroundService
 {
@@ -101,10 +99,8 @@ public sealed class StatusService : BackgroundService
         }
     }
 
-    private Counters TakeCounters()
-    {
-        using var process = Process.GetCurrentProcess();
-        return new Counters(
+    private Counters TakeCounters() =>
+        new(
             timeProvider.GetTimestamp(),
             source.CapturedFrames,
             stream.EncodedFrames,
@@ -119,12 +115,12 @@ public sealed class StatusService : BackgroundService
             h264Hub.SkippedFrames,
             detection.DetectedFrames,
             objectDetection.DetectedFrames,
-            process.TotalProcessorTime,
+            // Without allocation, unlike Process.GetCurrentProcess
+            Environment.CpuUsage.TotalTime,
             GC.GetTotalAllocatedBytes(),
             GC.CollectionCount(0),
             GC.CollectionCount(1),
             GC.CollectionCount(2));
-    }
 
     private StreamStatus CreateStatus(Counters last, Counters counters, double elapsed)
     {

@@ -98,7 +98,7 @@ xunit.v3(Microsoft Testing Platform)。ビルドしたテストの exe を直接
 | プロジェクト | 対象 |
 |:--|:--|
 | `tests/CameraTool.Vision.Tests` | 画像の変換、JPEG / H.264 のエンコード、顔検出・物体検知・動体検知、検知範囲 |
-| `tests/CameraTool.WebStream.Tests` | WebSocket のヘッダー、配信の仕組み、H.264 のキーフレーム待ち、検知範囲のファイル。カメラと GPU は使わない |
+| `tests/CameraTool.WebStream.Tests` | WebSocket のヘッダー、配信の仕組み、H.264 のキーフレーム待ち、検知範囲のファイル。サーバーを起動して HTTP / WebSocket の各 API を通す試験(テスト用のカメラが動く模様を流す)。本物のカメラと GPU は使わない |
 
 ```
 dotnet build tests/CameraTool.Vision.Tests

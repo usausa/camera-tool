@@ -1,7 +1,6 @@
 namespace CameraTool.FaceViewer.Controls;
 
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 
 using BunnyTail.XamlProperty;
 
@@ -24,20 +23,18 @@ public sealed partial class MotionOverlay : FrameworkElement
 
     private readonly byte[] drawnMask = new byte[MotionDetector.MaskLength];
 
-    private readonly Action updateRequestedAction;
+    private readonly UpdateRequest updateRequest;
 
     private MotionService? attachedSource;
 
     private MotionInfo info;
-
-    private int updatePending;
 
     [DependencyProperty(PropertyChanged = nameof(OnSourceChanged))]
     public partial MotionService? Source { get; set; }
 
     public MotionOverlay()
     {
-        updateRequestedAction = OnUpdateRequested;
+        updateRequest = new UpdateRequest(UpdateCells);
         IsHitTestVisible = false;
         RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
         Loaded += OnLoaded;
@@ -123,19 +120,7 @@ public sealed partial class MotionOverlay : FrameworkElement
     }
 
     // Capture thread
-    private void OnMotionUpdated(object? sender, EventArgs e)
-    {
-        if (Interlocked.Exchange(ref updatePending, 1) == 0)
-        {
-            Dispatcher.PostWithoutContext(updateRequestedAction, DispatcherPriority.Render);
-        }
-    }
-
-    private void OnUpdateRequested()
-    {
-        Volatile.Write(ref updatePending, 0);
-        UpdateCells();
-    }
+    private void OnMotionUpdated(object? sender, EventArgs e) => updateRequest.Request();
 
     private void UpdateCells()
     {

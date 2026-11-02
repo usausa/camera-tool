@@ -13,11 +13,13 @@ public sealed class VideoSource : IHostedService, IDisposable
 
     private readonly CameraSettings settings;
 
+    private readonly ICameraProvider cameras;
+
     private readonly SemaphoreSlim gate = new(1, 1);
 
     private readonly LatencyCounter captureLatency = new();
 
-    private VideoCapture? capture;
+    private IVideoCapture? capture;
 
     private Task? startupTask;
 
@@ -36,10 +38,11 @@ public sealed class VideoSource : IHostedService, IDisposable
 
     public long CapturedFrames => Interlocked.Read(ref capturedFrames);
 
-    public VideoSource(ILogger<VideoSource> log, CameraSettings settings)
+    public VideoSource(ILogger<VideoSource> log, CameraSettings settings, ICameraProvider cameras)
     {
         this.log = log;
         this.settings = settings;
+        this.cameras = cameras;
     }
 
     public void Dispose()
@@ -74,7 +77,7 @@ public sealed class VideoSource : IHostedService, IDisposable
         IReadOnlyList<VideoDevice> devices;
         try
         {
-            devices = await VideoDeviceCatalog.GetDevicesAsync();
+            devices = await cameras.GetDevicesAsync();
             log.InfoCameraDevices(devices.Count);
         }
         catch (Exception ex) when (ex is COMException or UnauthorizedAccessException)
@@ -130,7 +133,7 @@ public sealed class VideoSource : IHostedService, IDisposable
         try
         {
             // Native output, converted by the consumer
-            var video = new VideoCapture(device.Id);
+            var video = cameras.CreateCapture(device.Id);
             video.FrameCaptured += OnFrameCaptured;
             video.Failed += OnFailed;
             try

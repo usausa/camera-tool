@@ -1,7 +1,6 @@
 namespace CameraTool.FaceViewer.Controls;
 
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 
 using BunnyTail.XamlProperty;
 
@@ -12,15 +11,13 @@ public sealed partial class VideoView : FrameworkElement
 {
     private const double Dpi = 96;
 
-    private readonly Action updateRequestedAction;
+    private readonly UpdateRequest updateRequest;
 
     private WriteableBitmap? bitmap;
 
     private FrameStore? attachedSource;
 
     private bool renderingAttached;
-
-    private int updatePending;
 
     [DependencyProperty(PropertyChanged = nameof(OnSourceChanged))]
     public partial FrameStore? Source { get; set; }
@@ -30,7 +27,7 @@ public sealed partial class VideoView : FrameworkElement
 
     public VideoView()
     {
-        updateRequestedAction = OnUpdateRequested;
+        updateRequest = new UpdateRequest(UpdateFrame);
         RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.Linear);
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
@@ -127,19 +124,7 @@ public sealed partial class VideoView : FrameworkElement
     }
 
     // Producer thread
-    private void OnFrameWritten(object? sender, EventArgs e)
-    {
-        if (Interlocked.Exchange(ref updatePending, 1) == 0)
-        {
-            Dispatcher.PostWithoutContext(updateRequestedAction, DispatcherPriority.Render);
-        }
-    }
-
-    private void OnUpdateRequested()
-    {
-        Volatile.Write(ref updatePending, 0);
-        UpdateFrame();
-    }
+    private void OnFrameWritten(object? sender, EventArgs e) => updateRequest.Request();
 
     private void OnRendering(object? sender, EventArgs e) => UpdateFrame();
 
