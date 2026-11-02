@@ -47,6 +47,45 @@ public sealed class StreamStatus
     // Encoded frames allocated by the pool
     public int Buffers { get; init; }
 
+    public bool H264Enabled { get; init; }
+
+    // Encoder used last
+    public string? H264Encoder { get; init; }
+
+    public bool H264Hardware { get; init; }
+
+    public string? H264Error { get; init; }
+
+    public int H264Clients { get; init; }
+
+    public double H264EncodeFps { get; init; }
+
+    public double H264SendFps { get; init; }
+
+    public double H264SkipFps { get; init; }
+
+    // Frames not encoded because the encoder was busy
+    public double H264DropFps { get; init; }
+
+    public double H264KeyFrameFps { get; init; }
+
+    // Frame -> encoder input (conversion and copy)
+    public LatencyValue H264InputTime { get; init; }
+
+    // Encoder input -> output
+    public LatencyValue H264EncodeTime { get; init; }
+
+    // Arrival -> published
+    public LatencyValue H264StreamLatency { get; init; }
+
+    // Published -> sent
+    public LatencyValue H264SentLatency { get; init; }
+
+    // kbps
+    public double H264Bitrate { get; init; }
+
+    public int H264Buffers { get; init; }
+
     public bool DetectionEnabled { get; init; }
 
     public string? DetectionError { get; init; }
@@ -71,6 +110,18 @@ public sealed class StreamStatus
     public double MotionLevel { get; init; }
 
     public LatencyValue MotionTime { get; init; }
+
+    public bool ObjectEnabled { get; init; }
+
+    public string? ObjectError { get; init; }
+
+    public double ObjectFps { get; init; }
+
+    public LatencyValue ObjectPreprocessTime { get; init; }
+
+    public LatencyValue ObjectInferenceTime { get; init; }
+
+    public int Objects { get; init; }
 
     // Incremented when the detection area changes
     public int AreaVersion { get; init; }

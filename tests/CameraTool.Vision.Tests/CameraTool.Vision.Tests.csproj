@@ -27,6 +27,9 @@
     <None Include="..\..\src\CameraTool.FaceViewer\version-RFB-320.onnx" Link="version-RFB-320.onnx">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\..\src\CameraTool.FaceViewer\dfine-nano-coco.onnx" Link="dfine-nano-coco.onnx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

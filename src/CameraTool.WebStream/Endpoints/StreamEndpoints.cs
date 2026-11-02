@@ -11,6 +11,8 @@ public static class StreamEndpoints
 {
     private const string WebSocketClient = "WebSocket";
 
+    private const string H264Client = "WebSocket (H.264)";
+
     private const string MjpegClient = "MJPEG";
 
     private const string NoCache = "no-cache, no-store";
@@ -26,6 +28,7 @@ public static class StreamEndpoints
     public static void MapStreamEndpoints(this WebApplication app)
     {
         app.Map("/ws", HandleWebSocketAsync);
+        app.Map("/ws-h264", HandleH264WebSocketAsync);
         app.MapGet("/stream.mjpg", HandleMjpegAsync);
         app.MapGet("/snapshot.jpg", HandleSnapshotAsync);
     }
@@ -34,7 +37,22 @@ public static class StreamEndpoints
     // WebSocket
     //--------------------------------------------------------------------------------
 
-    private static async Task HandleWebSocketAsync(HttpContext context, FrameHub hub, IHostApplicationLifetime lifetime, ILoggerFactory loggerFactory)
+    private static Task HandleWebSocketAsync(HttpContext context, StreamHubs hubs, IHostApplicationLifetime lifetime, ILoggerFactory loggerFactory) =>
+        ServeWebSocketAsync(context, WebSocketClient, hubs.Jpeg, null, lifetime, loggerFactory);
+
+    private static Task HandleH264WebSocketAsync(HttpContext context, StreamHubs hubs, H264StreamService h264, IHostApplicationLifetime lifetime, ILoggerFactory loggerFactory)
+    {
+        if (!h264.IsEnabled)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return Task.CompletedTask;
+        }
+
+        return ServeWebSocketAsync(context, H264Client, hubs.H264, h264, lifetime, loggerFactory);
+    }
+
+    // h264: the stream of H.264 (null for JPEG)
+    private static async Task ServeWebSocketAsync(HttpContext context, string type, FrameHub hub, H264StreamService? h264, IHostApplicationLifetime lifetime, ILoggerFactory loggerFactory)
     {
         if (!context.WebSockets.IsWebSocketRequest)
         {
@@ -49,12 +67,12 @@ public static class StreamEndpoints
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.ApplicationStopping);
         using var subscription = hub.Subscribe(stopping.Token);
         using var closing = new CancellationTokenSource();
-        log.InfoClientConnected(WebSocketClient, connection.RemoteIpAddress, connection.RemotePort);
+        log.InfoClientConnected(type, connection.RemoteIpAddress, connection.RemotePort);
 
         var receiveTask = ReceiveAsync();
         try
         {
-            await SendAsync(socket, subscription, stopping.Token);
+            await SendAsync(socket, subscription, h264, stopping.Token);
 
             var status = lifetime.ApplicationStopping.IsCancellationRequested ? WebSocketCloseStatus.EndpointUnavailable : WebSocketCloseStatus.NormalClosure;
             await CloseOutputAsync(socket, status);
@@ -66,7 +84,7 @@ public static class StreamEndpoints
             await receiveTask;
         }
 
-        log.InfoClientDisconnected(WebSocketClient, connection.RemoteIpAddress, connection.RemotePort, subscription.SentFrames, subscription.SkippedFrames);
+        log.InfoClientDisconnected(type, connection.RemoteIpAddress, connection.RemotePort, subscription.SentFrames, subscription.SkippedFrames);
 
         // Receives until the client closes, then stops sending
         async Task ReceiveAsync()
@@ -81,6 +99,12 @@ public static class StreamEndpoints
                     {
                         break;
                     }
+
+                    // A text message from an H.264 client that cannot decode (a decoder error or a full queue) asks for a key frame
+                    if (result.MessageType == WebSocketMessageType.Text)
+                    {
+                        h264?.RequestKeyFrame();
+                    }
                 }
             }
             catch (Exception ex) when (ex is WebSocketException or OperationCanceledException)
@@ -94,8 +118,12 @@ public static class StreamEndpoints
         }
     }
 
-    private static async Task SendAsync(WebSocket socket, FrameSubscription subscription, CancellationToken cancellationToken)
+    // An H.264 frame depends on the previous frames, so a new client starts from a key frame,
+    // and a client that skipped a frame waits for the next key frame (requested from the encoder)
+    private static async Task SendAsync(WebSocket socket, FrameSubscription subscription, H264StreamService? h264, CancellationToken cancellationToken)
     {
+        var waitingKeyFrame = h264 is not null;
+        h264?.RequestKeyFrame();
         try
         {
             while (true)
@@ -103,6 +131,23 @@ public static class StreamEndpoints
                 var frame = await subscription.WaitAsync();
                 try
                 {
+                    if (h264 is not null)
+                    {
+                        if (frame.Index != subscription.LastIndex + 1)
+                        {
+                            waitingKeyFrame = true;
+                        }
+
+                        if (waitingKeyFrame && !frame.IsKeyFrame)
+                        {
+                            subscription.Skip(frame);
+                            h264.RequestKeyFrame();
+                            continue;
+                        }
+
+                        waitingKeyFrame = false;
+                    }
+
                     await socket.SendAsync(frame.Message, WebSocketMessageType.Binary, true, cancellationToken);
                     subscription.Complete(frame);
                 }
@@ -144,7 +189,7 @@ public static class StreamEndpoints
     // MJPEG
     //--------------------------------------------------------------------------------
 
-    private static async Task HandleMjpegAsync(HttpContext context, FrameHub hub, IHostApplicationLifetime lifetime, ILoggerFactory loggerFactory)
+    private static async Task HandleMjpegAsync(HttpContext context, StreamHubs hubs, IHostApplicationLifetime lifetime, ILoggerFactory loggerFactory)
     {
         var log = loggerFactory.CreateLogger(typeof(StreamEndpoints));
         var connection = context.Connection;
@@ -155,7 +200,7 @@ public static class StreamEndpoints
         context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.ApplicationStopping);
-        using var subscription = hub.Subscribe(stopping.Token);
+        using var subscription = hubs.Jpeg.Subscribe(stopping.Token);
         log.InfoClientConnected(MjpegClient, connection.RemoteIpAddress, connection.RemotePort);
 
         var writer = response.BodyWriter;
@@ -168,7 +213,7 @@ public static class StreamEndpoints
                 try
                 {
                     // Copied to the response buffer
-                    writer.Write(frame.Jpeg.Span);
+                    writer.Write(frame.Data.Span);
                     writer.Write(StreamProtocol.NextPartHeader);
                     subscription.Complete(frame);
                 }
@@ -196,11 +241,11 @@ public static class StreamEndpoints
     // Snapshot
     //--------------------------------------------------------------------------------
 
-    private static async Task HandleSnapshotAsync(HttpContext context, FrameHub hub, IHostApplicationLifetime lifetime)
+    private static async Task HandleSnapshotAsync(HttpContext context, StreamHubs hubs, IHostApplicationLifetime lifetime)
     {
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.ApplicationStopping);
         stopping.CancelAfter(SnapshotTimeout);
-        using var subscription = hub.Subscribe(stopping.Token);
+        using var subscription = hubs.Jpeg.Subscribe(stopping.Token);
 
         EncodedFrame frame;
         try
@@ -217,9 +262,9 @@ public static class StreamEndpoints
         {
             var response = context.Response;
             response.ContentType = "image/jpeg";
-            response.ContentLength = frame.Jpeg.Length;
+            response.ContentLength = frame.Data.Length;
             response.Headers.CacheControl = NoCache;
-            await response.Body.WriteAsync(frame.Jpeg, context.RequestAborted);
+            await response.Body.WriteAsync(frame.Data, context.RequestAborted);
         }
         finally
         {

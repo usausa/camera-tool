@@ -4,16 +4,12 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
-// Resize (bilinear) and convert to a CHW RGB tensor normalized by (x - 127) / 128.
+// Resize (bilinear) and convert to a CHW RGB tensor normalized by (x - Mean) * Scale.
 // The vector version gathers the samples with scalar loads (no gather instructions) and computes 8 pixels at once,
 // in the same order as the scalar version so that the results are identical.
 public static unsafe class TensorConverter
 {
     private const int Channels = 3;
-
-    private const float Mean = 127f;
-
-    private const float Scale = 1f / 128f;
 
     private const int VectorFloats = 8;
 
@@ -27,10 +23,10 @@ public static unsafe class TensorConverter
     // BGRA
     //--------------------------------------------------------------------------------
 
-    public static void BgraToTensor(ReadOnlySpan<byte> bgra, int stride, int width, int height, Span<float> destination, int destinationWidth, int destinationHeight) =>
-        BgraToTensor(bgra, stride, width, height, destination, destinationWidth, destinationHeight, Avx2.IsSupported);
+    public static void BgraToTensor(ReadOnlySpan<byte> bgra, int stride, int width, int height, Span<float> destination, int destinationWidth, int destinationHeight, TensorNormalization normalization) =>
+        BgraToTensor(bgra, stride, width, height, destination, destinationWidth, destinationHeight, normalization, Avx2.IsSupported);
 
-    internal static void BgraToTensor(ReadOnlySpan<byte> bgra, int stride, int width, int height, Span<float> destination, int destinationWidth, int destinationHeight, bool simd)
+    internal static void BgraToTensor(ReadOnlySpan<byte> bgra, int stride, int width, int height, Span<float> destination, int destinationWidth, int destinationHeight, TensorNormalization normalization, bool simd)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
@@ -47,17 +43,17 @@ public static unsafe class TensorConverter
             {
                 if (simd && (destinationWidth <= MaxVectorWidth))
                 {
-                    BgraToTensorVector(source, stride, width, height, tensor, destinationWidth, destinationHeight);
+                    BgraToTensorVector(source, stride, width, height, tensor, destinationWidth, destinationHeight, normalization);
                 }
                 else
                 {
-                    BgraToTensorScalar(source, stride, width, height, tensor, destinationWidth, destinationHeight);
+                    BgraToTensorScalar(source, stride, width, height, tensor, destinationWidth, destinationHeight, normalization);
                 }
             }
         }
     }
 
-    private static void BgraToTensorScalar(byte* source, int stride, int width, int height, float* tensor, int destinationWidth, int destinationHeight)
+    private static void BgraToTensorScalar(byte* source, int stride, int width, int height, float* tensor, int destinationWidth, int destinationHeight, TensorNormalization normalization)
     {
         var planeSize = destinationWidth * destinationHeight;
         var scaleX = (float)width / destinationWidth;
@@ -78,15 +74,15 @@ public static unsafe class TensorConverter
                 var p01 = row0 + (x1 * 4);
                 var p10 = row1 + (x0 * 4);
                 var p11 = row1 + (x1 * 4);
-                b[index] = Normalize(Lerp(p00[0], p01[0], p10[0], p11[0], fx, fy));
-                g[index] = Normalize(Lerp(p00[1], p01[1], p10[1], p11[1], fx, fy));
-                r[index] = Normalize(Lerp(p00[2], p01[2], p10[2], p11[2], fx, fy));
+                b[index] = Normalize(Lerp(p00[0], p01[0], p10[0], p11[0], fx, fy), normalization);
+                g[index] = Normalize(Lerp(p00[1], p01[1], p10[1], p11[1], fx, fy), normalization);
+                r[index] = Normalize(Lerp(p00[2], p01[2], p10[2], p11[2], fx, fy), normalization);
                 index++;
             }
         }
     }
 
-    private static void BgraToTensorVector(byte* source, int stride, int width, int height, float* tensor, int destinationWidth, int destinationHeight)
+    private static void BgraToTensorVector(byte* source, int stride, int width, int height, float* tensor, int destinationWidth, int destinationHeight, TensorNormalization normalization)
     {
         var planeSize = destinationWidth * destinationHeight;
         var scaleY = (float)height / destinationHeight;
@@ -122,9 +118,9 @@ public static unsafe class TensorConverter
                 }
 
                 var offset = index + start;
-                WriteBilinear(tensor + offset, red, fx + start, fy, count);
-                WriteBilinear(tensor + planeSize + offset, green, fx + start, fy, count);
-                WriteBilinear(tensor + (planeSize * 2) + offset, blue, fx + start, fy, count);
+                WriteBilinear(tensor + offset, red, fx + start, fy, count, normalization);
+                WriteBilinear(tensor + planeSize + offset, green, fx + start, fy, count, normalization);
+                WriteBilinear(tensor + (planeSize * 2) + offset, blue, fx + start, fy, count, normalization);
             }
         }
     }
@@ -133,10 +129,10 @@ public static unsafe class TensorConverter
     // NV12
     //--------------------------------------------------------------------------------
 
-    public static void Nv12ToTensor(ReadOnlySpan<byte> y, int yStride, ReadOnlySpan<byte> uv, int uvStride, int width, int height, YuvRange range, Span<float> destination, int destinationWidth, int destinationHeight) =>
-        Nv12ToTensor(y, yStride, uv, uvStride, width, height, range, destination, destinationWidth, destinationHeight, Avx2.IsSupported);
+    public static void Nv12ToTensor(ReadOnlySpan<byte> y, int yStride, ReadOnlySpan<byte> uv, int uvStride, int width, int height, YuvRange range, Span<float> destination, int destinationWidth, int destinationHeight, TensorNormalization normalization) =>
+        Nv12ToTensor(y, yStride, uv, uvStride, width, height, range, destination, destinationWidth, destinationHeight, normalization, Avx2.IsSupported);
 
-    internal static void Nv12ToTensor(ReadOnlySpan<byte> y, int yStride, ReadOnlySpan<byte> uv, int uvStride, int width, int height, YuvRange range, Span<float> destination, int destinationWidth, int destinationHeight, bool simd)
+    internal static void Nv12ToTensor(ReadOnlySpan<byte> y, int yStride, ReadOnlySpan<byte> uv, int uvStride, int width, int height, YuvRange range, Span<float> destination, int destinationWidth, int destinationHeight, TensorNormalization normalization, bool simd)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
@@ -162,18 +158,18 @@ public static unsafe class TensorConverter
                 {
                     if (simd && (destinationWidth <= MaxVectorWidth))
                     {
-                        Nv12ToTensorVector(yPointer, yStride, uvPointer, uvStride, width, height, coefficient, tensor, destinationWidth, destinationHeight);
+                        Nv12ToTensorVector(yPointer, yStride, uvPointer, uvStride, width, height, coefficient, tensor, destinationWidth, destinationHeight, normalization);
                     }
                     else
                     {
-                        Nv12ToTensorScalar(yPointer, yStride, uvPointer, uvStride, width, height, coefficient, tensor, destinationWidth, destinationHeight);
+                        Nv12ToTensorScalar(yPointer, yStride, uvPointer, uvStride, width, height, coefficient, tensor, destinationWidth, destinationHeight, normalization);
                     }
                 }
             }
         }
     }
 
-    private static void Nv12ToTensorScalar(byte* yPointer, int yStride, byte* uvPointer, int uvStride, int width, int height, YuvCoefficient coefficient, float* tensor, int destinationWidth, int destinationHeight)
+    private static void Nv12ToTensorScalar(byte* yPointer, int yStride, byte* uvPointer, int uvStride, int width, int height, YuvCoefficient coefficient, float* tensor, int destinationWidth, int destinationHeight, TensorNormalization normalization)
     {
         var planeSize = destinationWidth * destinationHeight;
         var scaleX = (float)width / destinationWidth;
@@ -190,13 +186,13 @@ public static unsafe class TensorConverter
                 Map(dx, scaleX, width, out var x0, out var x1, out var fx);
                 var luma = Lerp(row0[x0], row0[x1], row1[x0], row1[x1], fx, fy);
                 var chroma = chromaRow + (x0 & ~1);
-                WriteYuv(tensor, index, planeSize, luma, chroma[0], chroma[1], coefficient);
+                WriteYuv(tensor, index, planeSize, luma, chroma[0], chroma[1], coefficient, normalization);
                 index++;
             }
         }
     }
 
-    private static void Nv12ToTensorVector(byte* yPointer, int yStride, byte* uvPointer, int uvStride, int width, int height, YuvCoefficient coefficient, float* tensor, int destinationWidth, int destinationHeight)
+    private static void Nv12ToTensorVector(byte* yPointer, int yStride, byte* uvPointer, int uvStride, int width, int height, YuvCoefficient coefficient, float* tensor, int destinationWidth, int destinationHeight, TensorNormalization normalization)
     {
         var planeSize = destinationWidth * destinationHeight;
         var scaleY = (float)height / destinationHeight;
@@ -230,7 +226,7 @@ public static unsafe class TensorConverter
                     v[i] = chroma[1];
                 }
 
-                WriteYuvVector(tensor + index + start, planeSize, luma, u, v, fx + start, fy, count, coefficient);
+                WriteYuvVector(tensor + index + start, planeSize, luma, u, v, fx + start, fy, count, coefficient, normalization);
             }
         }
     }
@@ -239,10 +235,10 @@ public static unsafe class TensorConverter
     // YUY2
     //--------------------------------------------------------------------------------
 
-    public static void Yuy2ToTensor(ReadOnlySpan<byte> yuy2, int stride, int width, int height, YuvRange range, Span<float> destination, int destinationWidth, int destinationHeight) =>
-        Yuy2ToTensor(yuy2, stride, width, height, range, destination, destinationWidth, destinationHeight, Avx2.IsSupported);
+    public static void Yuy2ToTensor(ReadOnlySpan<byte> yuy2, int stride, int width, int height, YuvRange range, Span<float> destination, int destinationWidth, int destinationHeight, TensorNormalization normalization) =>
+        Yuy2ToTensor(yuy2, stride, width, height, range, destination, destinationWidth, destinationHeight, normalization, Avx2.IsSupported);
 
-    internal static void Yuy2ToTensor(ReadOnlySpan<byte> yuy2, int stride, int width, int height, YuvRange range, Span<float> destination, int destinationWidth, int destinationHeight, bool simd)
+    internal static void Yuy2ToTensor(ReadOnlySpan<byte> yuy2, int stride, int width, int height, YuvRange range, Span<float> destination, int destinationWidth, int destinationHeight, TensorNormalization normalization, bool simd)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
@@ -261,17 +257,17 @@ public static unsafe class TensorConverter
             {
                 if (simd && (destinationWidth <= MaxVectorWidth))
                 {
-                    Yuy2ToTensorVector(source, stride, width, height, coefficient, tensor, destinationWidth, destinationHeight);
+                    Yuy2ToTensorVector(source, stride, width, height, coefficient, tensor, destinationWidth, destinationHeight, normalization);
                 }
                 else
                 {
-                    Yuy2ToTensorScalar(source, stride, width, height, coefficient, tensor, destinationWidth, destinationHeight);
+                    Yuy2ToTensorScalar(source, stride, width, height, coefficient, tensor, destinationWidth, destinationHeight, normalization);
                 }
             }
         }
     }
 
-    private static void Yuy2ToTensorScalar(byte* source, int stride, int width, int height, YuvCoefficient coefficient, float* tensor, int destinationWidth, int destinationHeight)
+    private static void Yuy2ToTensorScalar(byte* source, int stride, int width, int height, YuvCoefficient coefficient, float* tensor, int destinationWidth, int destinationHeight, TensorNormalization normalization)
     {
         var planeSize = destinationWidth * destinationHeight;
         var scaleX = (float)width / destinationWidth;
@@ -287,13 +283,13 @@ public static unsafe class TensorConverter
                 Map(dx, scaleX, width, out var x0, out var x1, out var fx);
                 var luma = Lerp(row0[x0 * 2], row0[x1 * 2], row1[x0 * 2], row1[x1 * 2], fx, fy);
                 var pair = row0 + ((x0 >> 1) * 4);
-                WriteYuv(tensor, index, planeSize, luma, pair[1], pair[3], coefficient);
+                WriteYuv(tensor, index, planeSize, luma, pair[1], pair[3], coefficient, normalization);
                 index++;
             }
         }
     }
 
-    private static void Yuy2ToTensorVector(byte* source, int stride, int width, int height, YuvCoefficient coefficient, float* tensor, int destinationWidth, int destinationHeight)
+    private static void Yuy2ToTensorVector(byte* source, int stride, int width, int height, YuvCoefficient coefficient, float* tensor, int destinationWidth, int destinationHeight, TensorNormalization normalization)
     {
         var planeSize = destinationWidth * destinationHeight;
         var scaleY = (float)height / destinationHeight;
@@ -326,7 +322,7 @@ public static unsafe class TensorConverter
                     v[i] = pair[3];
                 }
 
-                WriteYuvVector(tensor + index + start, planeSize, luma, u, v, fx + start, fy, count, coefficient);
+                WriteYuvVector(tensor + index + start, planeSize, luma, u, v, fx + start, fy, count, coefficient, normalization);
             }
         }
     }
@@ -344,23 +340,25 @@ public static unsafe class TensorConverter
     }
 
     // Bilinear interpolation and normalization of a channel
-    private static void WriteBilinear(float* destination, Corners corners, float* fx, float fy, int count)
+    private static void WriteBilinear(float* destination, Corners corners, float* fx, float fy, int count, TensorNormalization normalization)
     {
         var vfy = Vector256.Create(fy);
+        var mean = Vector256.Create(normalization.Mean);
+        var scale = Vector256.Create(normalization.Scale);
         var i = 0;
         for (; i <= count - VectorFloats; i += VectorFloats)
         {
-            Avx.Store(destination + i, Normalize(Lerp(corners, i, Avx.LoadVector256(fx + i), vfy)));
+            Avx.Store(destination + i, Normalize(Lerp(corners, i, Avx.LoadVector256(fx + i), vfy), mean, scale));
         }
 
         for (; i < count; i++)
         {
-            destination[i] = Normalize(Lerp(corners.V00[i], corners.V01[i], corners.V10[i], corners.V11[i], fx[i], fy));
+            destination[i] = Normalize(Lerp(corners.V00[i], corners.V01[i], corners.V10[i], corners.V11[i], fx[i], fy), normalization);
         }
     }
 
     // Bilinear luma, nearest chroma and the color conversion
-    private static void WriteYuvVector(float* destination, int planeSize, Corners luma, float* u, float* v, float* fx, float fy, int count, YuvCoefficient k)
+    private static void WriteYuvVector(float* destination, int planeSize, Corners luma, float* u, float* v, float* fx, float fy, int count, YuvCoefficient k, TensorNormalization normalization)
     {
         var vfy = Vector256.Create(fy);
         var yOffset = Vector256.Create(k.YOffset);
@@ -370,21 +368,23 @@ public static unsafe class TensorConverter
         var gv = Vector256.Create(k.Gv);
         var bu = Vector256.Create(k.Bu);
         var center = Vector256.Create(128f);
+        var mean = Vector256.Create(normalization.Mean);
+        var scale = Vector256.Create(normalization.Scale);
         var i = 0;
         for (; i <= count - VectorFloats; i += VectorFloats)
         {
             var c = (Lerp(luma, i, Avx.LoadVector256(fx + i), vfy) - yOffset) * yScale;
             var d = Avx.LoadVector256(u + i) - center;
             var e = Avx.LoadVector256(v + i) - center;
-            Avx.Store(destination + i, Normalize(c + (rv * e)));
-            Avx.Store(destination + planeSize + i, Normalize(c - (gu * d) - (gv * e)));
-            Avx.Store(destination + (planeSize * 2) + i, Normalize(c + (bu * d)));
+            Avx.Store(destination + i, Normalize(c + (rv * e), mean, scale));
+            Avx.Store(destination + planeSize + i, Normalize(c - (gu * d) - (gv * e), mean, scale));
+            Avx.Store(destination + (planeSize * 2) + i, Normalize(c + (bu * d), mean, scale));
         }
 
         for (; i < count; i++)
         {
             var value = Lerp(luma.V00[i], luma.V01[i], luma.V10[i], luma.V11[i], fx[i], fy);
-            WriteYuv(destination, i, planeSize, value, u[i], v[i], k);
+            WriteYuv(destination, i, planeSize, value, u[i], v[i], k, normalization);
         }
     }
 
@@ -399,8 +399,8 @@ public static unsafe class TensorConverter
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector256<float> Normalize(Vector256<float> value) =>
-        (Avx.Min(Avx.Max(value, Vector256<float>.Zero), Vector256.Create(255f)) - Vector256.Create(Mean)) * Vector256.Create(Scale);
+    private static Vector256<float> Normalize(Vector256<float> value, Vector256<float> mean, Vector256<float> scale) =>
+        (Avx.Min(Avx.Max(value, Vector256<float>.Zero), Vector256.Create(255f)) - mean) * scale;
 
     //--------------------------------------------------------------------------------
     // Helper
@@ -437,17 +437,17 @@ public static unsafe class TensorConverter
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float Normalize(float value) => (Math.Clamp(value, 0f, 255f) - Mean) * Scale;
+    private static float Normalize(float value, TensorNormalization normalization) => (Math.Clamp(value, 0f, 255f) - normalization.Mean) * normalization.Scale;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void WriteYuv(float* tensor, int index, int planeSize, float y, float u, float v, YuvCoefficient k)
+    private static void WriteYuv(float* tensor, int index, int planeSize, float y, float u, float v, YuvCoefficient k, TensorNormalization normalization)
     {
         var c = (y - k.YOffset) * k.YScale;
         var d = u - 128f;
         var e = v - 128f;
-        tensor[index] = Normalize(c + (k.Rv * e));
-        tensor[planeSize + index] = Normalize(c - (k.Gu * d) - (k.Gv * e));
-        tensor[(planeSize * 2) + index] = Normalize(c + (k.Bu * d));
+        tensor[index] = Normalize(c + (k.Rv * e), normalization);
+        tensor[planeSize + index] = Normalize(c - (k.Gu * d) - (k.Gv * e), normalization);
+        tensor[(planeSize * 2) + index] = Normalize(c + (k.Bu * d), normalization);
     }
 
     // Four corner samples of a chunk (stack memory)

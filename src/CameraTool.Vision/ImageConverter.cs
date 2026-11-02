@@ -156,6 +156,10 @@ public static unsafe class ImageConverter
     public static void Yuy2ToNv12(ReadOnlySpan<byte> yuy2, int yuy2Stride, Span<byte> y, int yStride, Span<byte> uv, int uvStride, int width, int height, YuvRange range) =>
         Yuy2ToNv12(yuy2, yuy2Stride, y, yStride, uv, uvStride, width, height, range, Ssse3.IsSupported);
 
+    // NV12 in the range of the source (for H.264, which writes the range to the stream)
+    public static void Yuy2ToNv12(ReadOnlySpan<byte> yuy2, int yuy2Stride, Span<byte> y, int yStride, Span<byte> uv, int uvStride, int width, int height) =>
+        Yuy2ToNv12(yuy2, yuy2Stride, y, yStride, uv, uvStride, width, height, YuvRange.Full, Ssse3.IsSupported);
+
     internal static void Yuy2ToNv12(ReadOnlySpan<byte> yuy2, int yuy2Stride, Span<byte> y, int yStride, Span<byte> uv, int uvStride, int width, int height, YuvRange range, bool simd)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);

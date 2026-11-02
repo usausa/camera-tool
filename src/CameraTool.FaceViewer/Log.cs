@@ -64,6 +64,12 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Error, Message = "Face detector load failed. model=[{model}]")]
     public static partial void ErrorFaceDetectorLoadFailed(this ILogger logger, Exception ex, string model);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Object detector loaded. model=[{model}], input=[{width}x{height}], elapsed=[{elapsed:F1}ms]")]
+    public static partial void InfoObjectDetectorLoaded(this ILogger logger, string model, int width, int height, double elapsed);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Object detector load failed. model=[{model}]")]
+    public static partial void ErrorObjectDetectorLoadFailed(this ILogger logger, Exception ex, string model);
+
     // Area
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Area loaded. path=[{path}], cells=[{cells}]")]
@@ -88,6 +94,9 @@ internal static partial class Log
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Motion: enabled=[{enabled}], gate=[{gate}], status=[{status}], level=[{level:F1}], time=[{time:F3}/{timeMax:F3}]")]
     public static partial void DebugMotionStatistics(this ILogger logger, bool enabled, bool gate, string status, double level, double time, double timeMax);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Object: enabled=[{enabled}], detect=[{detectFps:F1}], preprocess=[{preprocessTime:F3}/{preprocessTimeMax:F3}], inference=[{inferenceTime:F2}/{inferenceTimeMax:F2}], objects=[{objects}]")]
+    public static partial void DebugObjectStatistics(this ILogger logger, bool enabled, double detectFps, double preprocessTime, double preprocessTimeMax, double inferenceTime, double inferenceTimeMax, string objects);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Statistics: format=[{format}], output=[{output}], update=[{update}], capture=[{captureFps:F1}], display=[{displayFps:F1}], captureLatency=[{captureLatency:F2}/{captureLatencyMax:F2}], process=[{processTime:F3}/{processTimeMax:F3}], displayLatency=[{displayLatency:F2}/{displayLatencyMax:F2}], cpu=[{cpuUsage:F2}], allocated=[{allocated:F1}], gc=[{gc0:F1}/{gc1:F1}/{gc2:F1}]")]
     public static partial void DebugStatistics(

@@ -206,6 +206,26 @@ public sealed class ImageConverterTests
         Assert.All(uvPlane, x => Assert.Equal(expectedChroma, x));
     }
 
+    [Theory]
+    [InlineData(16, 240)]
+    [InlineData(235, 16)]
+    public void Yuy2ToNv12KeepsRangeOfSource(byte y, byte chroma)
+    {
+        // Arrange
+        const int width = 32;
+        const int height = 2;
+        var source = Enumerable.Range(0, width * 2 * height).Select(i => (i & 1) == 0 ? y : chroma).ToArray();
+        var yPlane = new byte[width * height];
+        var uvPlane = new byte[width];
+
+        // Act
+        ImageConverter.Yuy2ToNv12(source, width * 2, yPlane, width, uvPlane, width, width, height);
+
+        // Assert
+        Assert.All(yPlane, x => Assert.Equal(y, x));
+        Assert.All(uvPlane, x => Assert.Equal(chroma, x));
+    }
+
     [Fact]
     public void Yuy2ToNv12AveragesChromaOfTwoRows()
     {

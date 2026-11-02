@@ -113,6 +113,27 @@ public sealed class DetectionAreaTests
     }
 
     [Fact]
+    public void FilterObjectsKeepsObjectsInArea()
+    {
+        // Arrange (the top half)
+        var area = DetectionArea.Full.WithCells(0, 12, LastColumn, LastRow, false);
+        var objects = new[]
+        {
+            new ObjectBox(0.1f, 0.1f, 0.3f, 0.6f, 0.9f, 0),
+            new ObjectBox(0.1f, 0.5f, 0.3f, 0.9f, 0.8f, 16),
+            new ObjectBox(0.6f, 0f, 0.9f, 0.4f, 0.7f, 2)
+        };
+
+        // Act
+        var count = area.FilterObjects(objects);
+
+        // Assert (the center y of the objects: 0.35, 0.7, 0.2)
+        Assert.Equal(2, count);
+        Assert.Equal(0, objects[0].ClassId);
+        Assert.Equal(2, objects[1].ClassId);
+    }
+
+    [Fact]
     public void FullAreaKeepsAllFaces()
     {
         // Arrange

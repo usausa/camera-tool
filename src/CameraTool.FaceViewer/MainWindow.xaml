@@ -9,7 +9,7 @@
         x:Class="CameraTool.FaceViewer.MainWindow"
         s:DataContextResolver.Type="{x:Type app:MainWindowViewModel}"
         d:DataContext="{d:DesignInstance Type={x:Type app:MainWindowViewModel}}"
-        Width="1280" Height="800" MinWidth="960" MinHeight="600"
+        Width="1280" Height="960" MinWidth="960" MinHeight="600"
         Title="Face Viewer">
 
     <Window.Resources>
@@ -18,7 +18,7 @@
 
         <Style x:Key="PanelHeaderTextBlock"
                TargetType="{x:Type TextBlock}">
-            <Setter Property="Margin" Value="0,12,0,6" />
+            <Setter Property="Margin" Value="0,10,0,4" />
             <Setter Property="FontSize" Value="16" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
@@ -26,7 +26,7 @@
         <Style x:Key="PanelComboBox"
                TargetType="{x:Type ComboBox}"
                BasedOn="{StaticResource {x:Type ComboBox}}">
-            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="Margin" Value="0,0,0,6" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
         </Style>
 
@@ -37,11 +37,25 @@
             <Setter Property="Margin" Value="0,0,8,0" />
         </Style>
 
+        <!-- Takes no space while there is no error, a long message is cut at 3 lines (the whole message is in the tool tip) -->
         <Style x:Key="ErrorTextBlock"
                TargetType="{x:Type TextBlock}">
-            <Setter Property="Margin" Value="0,8,0,0" />
+            <Setter Property="Margin" Value="0,6,0,0" />
+            <Setter Property="MaxHeight" Value="57" />
+            <Setter Property="LineStackingStrategy" Value="BlockLineHeight" />
+            <Setter Property="LineHeight" Value="19" />
             <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="ToolTip" Value="{Binding Text, RelativeSource={RelativeSource Self}}" />
+            <Style.Triggers>
+                <Trigger Property="Text" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <!-- Statistics -->
@@ -59,12 +73,14 @@
             <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
         </Style>
 
+        <!-- Next to the header -->
         <Style x:Key="StatisticsNoteTextBlock"
                TargetType="{x:Type TextBlock}">
-            <Setter Property="Margin" Value="0,8,0,0" />
+            <Setter Property="Margin" Value="0,0,0,5" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Bottom" />
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-            <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
 
     </Window.Resources>
@@ -86,6 +102,7 @@
                                       FrameWidth="{Binding FrameWidth}"
                                       FrameHeight="{Binding FrameHeight}" />
                 <controls:MotionOverlay Source="{Binding Motion}" />
+                <controls:ObjectBoxOverlay Source="{Binding ObjectDetection}" />
                 <controls:FaceBoxOverlay Source="{Binding FaceDetection}" />
             </Grid>
         </Border>
@@ -107,10 +124,24 @@
                           ItemsSource="{Binding Formats}"
                           IsEnabled="{Binding IsRunning, Converter={StaticResource ReverseConverter}}"
                           SelectedItem="{Binding SelectedFormat}" />
-                <ComboBox Style="{StaticResource PanelComboBox}"
-                          ItemsSource="{Binding Conversions}"
-                          IsEnabled="{Binding IsRunning, Converter={StaticResource ReverseConverter}}"
-                          SelectedItem="{Binding SelectedConversion}" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox Grid.Column="0"
+                              Style="{StaticResource PanelComboBox}"
+                              ToolTip="Conversion"
+                              ItemsSource="{Binding Conversions}"
+                              IsEnabled="{Binding IsRunning, Converter={StaticResource ReverseConverter}}"
+                              SelectedItem="{Binding SelectedConversion}" />
+                    <ComboBox Grid.Column="2"
+                              Style="{StaticResource PanelComboBox}"
+                              ToolTip="Display update"
+                              ItemsSource="{Binding UpdateModes}"
+                              SelectedItem="{Binding SelectedUpdateMode}" />
+                </Grid>
                 <StackPanel Orientation="Horizontal">
                     <Button Style="{StaticResource PanelButton}"
                             Command="{Binding StartCommand}"
@@ -125,44 +156,67 @@
                 <TextBlock Style="{StaticResource ErrorTextBlock}"
                            Text="{Binding ErrorMessage}" />
 
-                <!-- Display -->
-                <TextBlock Style="{StaticResource PanelHeaderTextBlock}"
-                           Text="Display" />
-                <ComboBox Style="{StaticResource PanelComboBox}"
-                          ItemsSource="{Binding UpdateModes}"
-                          SelectedItem="{Binding SelectedUpdateMode}" />
-
                 <!-- Detection -->
                 <TextBlock Style="{StaticResource PanelHeaderTextBlock}"
                            Text="Detection" />
-                <CheckBox Content="Face detection"
-                          IsChecked="{Binding IsDetectionEnabled}" />
-                <CheckBox Content="Motion detection"
-                          IsChecked="{Binding IsMotionEnabled}" />
-                <CheckBox Content="Detect only on motion"
-                          IsEnabled="{Binding IsMotionEnabled}"
-                          IsChecked="{Binding IsMotionGateEnabled}" />
-                <CheckBox Content="Edit area"
-                          IsEnabled="{Binding IsRunning}"
-                          IsChecked="{Binding IsAreaEditing}" />
-                <StackPanel Margin="0,8,0,0"
-                            Orientation="Horizontal">
-                    <Button Style="{StaticResource PanelButton}"
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <CheckBox Grid.Row="0" Grid.Column="0"
+                              Content="Face detection"
+                              IsChecked="{Binding IsDetectionEnabled}" />
+                    <CheckBox Grid.Row="0" Grid.Column="1"
+                              Content="Object detection"
+                              IsChecked="{Binding IsObjectDetectionEnabled}" />
+                    <CheckBox Grid.Row="1" Grid.Column="0"
+                              Content="Motion detection"
+                              IsChecked="{Binding IsMotionEnabled}" />
+                    <!-- Option of the motion detection -->
+                    <CheckBox Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                              Margin="28,0,0,0"
+                              Content="Detect only on motion"
+                              IsEnabled="{Binding IsMotionEnabled}"
+                              IsChecked="{Binding IsMotionGateEnabled}" />
+                    <CheckBox Grid.Row="3" Grid.Column="0"
+                              Content="Edit area"
+                              IsEnabled="{Binding IsRunning}"
+                              IsChecked="{Binding IsAreaEditing}" />
+                    <Button Grid.Row="3" Grid.Column="1"
+                            Style="{StaticResource PanelButton}"
                             Command="{Binding ResetAreaCommand}"
                             Content="Reset area" />
-                </StackPanel>
+                </Grid>
                 <TextBlock Style="{StaticResource ErrorTextBlock}"
                            Text="{Binding DetectionError}" />
+                <TextBlock Style="{StaticResource ErrorTextBlock}"
+                           Text="{Binding ObjectError}" />
 
                 <!-- Statistics -->
-                <TextBlock Style="{StaticResource PanelHeaderTextBlock}"
-                           Text="Statistics" />
+                <Grid>
+                    <TextBlock Style="{StaticResource PanelHeaderTextBlock}"
+                               Text="Statistics" />
+                    <TextBlock Style="{StaticResource StatisticsNoteTextBlock}"
+                               Text="Latency / Process: average / max" />
+                </Grid>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -349,10 +403,48 @@
                     <TextBlock Grid.Row="16" Grid.Column="1"
                                Style="{StaticResource StatisticsValueTextBlock}"
                                Text="{Binding AreaStatus}" />
-                </Grid>
 
-                <TextBlock Style="{StaticResource StatisticsNoteTextBlock}"
-                           Text="Latency / Process: average / max" />
+                    <TextBlock Grid.Row="17" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Object detect" />
+                    <TextBlock Grid.Row="17" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Text="{Binding ObjectFps, StringFormat={}{0:F1} fps}" />
+
+                    <TextBlock Grid.Row="18" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Object preprocess" />
+                    <TextBlock Grid.Row="18" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
+                                <Binding Path="ObjectPreprocessTime" />
+                                <Binding Path="ObjectPreprocessTimeMax" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+
+                    <TextBlock Grid.Row="19" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Object inference" />
+                    <TextBlock Grid.Row="19" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
+                                <Binding Path="ObjectInferenceTime" />
+                                <Binding Path="ObjectInferenceTimeMax" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+
+                    <TextBlock Grid.Row="20" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Objects" />
+                    <TextBlock Grid.Row="20" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               TextWrapping="Wrap"
+                               Text="{Binding ObjectStatus}" />
+                </Grid>
 
             </StackPanel>
         </ScrollViewer>

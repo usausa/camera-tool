@@ -94,7 +94,7 @@ public sealed class DetectionArea
     }
 
     //--------------------------------------------------------------------------------
-    // Face
+    // Face and object
     //--------------------------------------------------------------------------------
 
     // Keeps the faces whose center is in the area at the start (in the same order) and returns the count
@@ -111,6 +111,26 @@ public sealed class DetectionArea
             if (ContainsPoint((face.Left + face.Right) * 0.5f, (face.Top + face.Bottom) * 0.5f))
             {
                 faces[count++] = face;
+            }
+        }
+
+        return count;
+    }
+
+    // Keeps the objects whose center is in the area at the start (in the same order) and returns the count
+    public int FilterObjects(Span<ObjectBox> objects)
+    {
+        if (IsFull)
+        {
+            return objects.Length;
+        }
+
+        var count = 0;
+        foreach (var value in objects)
+        {
+            if (ContainsPoint((value.Left + value.Right) * 0.5f, (value.Top + value.Bottom) * 0.5f))
+            {
+                objects[count++] = value;
             }
         }
 

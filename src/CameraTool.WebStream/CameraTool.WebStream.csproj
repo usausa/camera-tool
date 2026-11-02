@@ -28,7 +28,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\CameraTool.FaceViewer\version-RFB-320.onnx;..\CameraTool.FaceViewer\version-RFB-320-LICENSE.txt">
+    <Content Include="..\CameraTool.FaceViewer\version-RFB-320.onnx;..\CameraTool.FaceViewer\version-RFB-320-LICENSE.txt;..\CameraTool.FaceViewer\dfine-nano-coco.onnx;..\CameraTool.FaceViewer\dfine-nano-coco-LICENSE.txt">
       <Link>%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

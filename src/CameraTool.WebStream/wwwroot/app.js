@@ -5,6 +5,10 @@ const FACE_SECTION_FLAG = 0x1;
 
 const MOTION_SECTION_FLAG = 0x2;
 
+const OBJECT_SECTION_FLAG = 0x4;
+
+const KEY_FRAME_FLAG = 0x8;
+
 const BASE_HEADER_LENGTH = 32;
 
 const FACE_SECTION_LENGTH = 8;
@@ -14,7 +18,14 @@ const FACE_LENGTH = 20;
 // Followed by the cell mask
 const MOTION_SECTION_LENGTH = 8;
 
+const OBJECT_SECTION_LENGTH = 8;
+
+const OBJECT_LENGTH = 24;
+
 const BOX_COLOR = '#00e676';
+
+// Object boxes by the group of the class
+const GROUP_COLORS = { person: '#2979ff', animal: '#ffc400', vehicle: '#e040fb', other: '#ffffff' };
 
 const CELL_COLOR = 'rgba(255, 145, 0, 0.31)';
 
@@ -34,11 +45,21 @@ const RECONNECT_DELAY = 1000;
 // The checkbox is not synced with the server for a while after it is changed
 const SYNC_DELAY = 2000;
 
+// H.264 frames in the decoder, more delta frames are dropped until a key frame (the decoder is slower than the stream)
+const MAX_DECODE_QUEUE = 3;
+
+// H.264 frames kept for the output of the decoder
+const MAX_DECODE_FRAMES = 64;
+
+// A key frame is requested at most once per interval
+const KEY_FRAME_REQUEST_INTERVAL = 500;
+
 const canvas = document.getElementById('canvas');
 const context = canvas.getContext('2d');
 const image = document.getElementById('image');
 const state = document.getElementById('state');
 const detection = document.getElementById('detection');
+const objectDetection = document.getElementById('objects');
 const motionDetection = document.getElementById('motion');
 const motionGate = document.getElementById('motionGate');
 const areaEdit = document.getElementById('areaEdit');
@@ -47,6 +68,7 @@ const areaReset = document.getElementById('areaReset');
 // Check boxes synced with the server
 const options = [
     { element: detection, url: '/api/detection', key: 'enabled', status: 'detectionEnabled', syncTime: 0 },
+    { element: objectDetection, url: '/api/objects', key: 'enabled', status: 'objectEnabled', syncTime: 0 },
     { element: motionDetection, url: '/api/motion', key: 'enabled', status: 'motionEnabled', syncTime: 0 },
     { element: motionGate, url: '/api/detection', key: 'motionGate', status: 'motionGate', syncTime: 0 }
 ];
@@ -91,6 +113,7 @@ const client = {
     height: 0,
     faces: null,
     motionCells: null,
+    objects: null,
     receiveLatency: new Counter(),
     publishLatency: new Counter(),
     drawLatency: new Counter(),
@@ -128,6 +151,7 @@ function createRows(id, items) {
 
 const clientRows = createRows('client', [
     ['mode', 'Mode'],
+    ['codec', 'Codec'],
     ['resolution', 'Resolution'],
     ['received', 'Received'],
     ['drawn', 'Drawn'],
@@ -140,7 +164,8 @@ const clientRows = createRows('client', [
     ['bitrate', 'Bitrate'],
     ['faces', 'Faces'],
     ['detectionLag', 'Detection lag'],
-    ['motionCells', 'Moving cells']
+    ['motionCells', 'Moving cells'],
+    ['objects', 'Objects']
 ]);
 
 const serverRows = createRows('server', [
@@ -159,6 +184,19 @@ const serverRows = createRows('server', [
     ['sentLatency', 'Publish → sent'],
     ['jpegSize', 'JPEG size'],
     ['buffers', 'Frame buffers'],
+    ['h264', 'H.264 encoder'],
+    ['h264Clients', 'H.264 clients'],
+    ['h264Encode', 'H.264 encode'],
+    ['h264Send', 'H.264 send'],
+    ['h264Skip', 'H.264 skip'],
+    ['h264Drop', 'H.264 drop'],
+    ['h264KeyFrames', 'H.264 key frames'],
+    ['h264InputTime', 'H.264 input'],
+    ['h264EncodeTime', 'H.264 encode time'],
+    ['h264StreamLatency', 'H.264 arrival → publish'],
+    ['h264SentLatency', 'H.264 publish → sent'],
+    ['h264Bitrate', 'H.264 bitrate'],
+    ['h264Buffers', 'H.264 buffers'],
     ['detection', 'Detection'],
     ['detect', 'Detect'],
     ['preprocessTime', 'Preprocess'],
@@ -166,6 +204,11 @@ const serverRows = createRows('server', [
     ['faces', 'Faces'],
     ['motion', 'Motion'],
     ['motionTime', 'Motion time'],
+    ['objectDetection', 'Object detection'],
+    ['objectDetect', 'Object detect'],
+    ['objectPreprocess', 'Object preprocess'],
+    ['objectInference', 'Object inference'],
+    ['objects', 'Objects'],
     ['area', 'Area'],
     ['cpu', 'CPU'],
     ['allocated', 'Allocated'],
@@ -190,8 +233,9 @@ function updateClientStats() {
     const drawLatency = client.drawLatency.take();
     const decodeTime = client.decodeTime.take();
     const detectionLag = client.detectionLag.take();
-    if (mode === 'ws') {
-        clientRows.mode.textContent = 'WebSocket';
+    if (mode !== 'mjpeg') {
+        clientRows.mode.textContent = mode === 'h264' ? 'WebSocket (H.264)' : 'WebSocket';
+        clientRows.codec.textContent = mode === 'h264' ? (h264.codec ?? '-') : 'JPEG';
         clientRows.resolution.textContent = client.width > 0 ? `${client.width}x${client.height}` : '-';
         clientRows.received.textContent = formatFps(client.received / elapsed);
         clientRows.drawn.textContent = formatFps(client.drawn / elapsed);
@@ -205,11 +249,13 @@ function updateClientStats() {
         clientRows.faces.textContent = client.faces !== null ? `${client.faces}` : '-';
         clientRows.detectionLag.textContent = formatFrames(detectionLag);
         clientRows.motionCells.textContent = client.motionCells !== null ? `${client.motionCells}` : '-';
+        clientRows.objects.textContent = client.objects !== null ? `${client.objects}` : '-';
     } else {
         // Not measurable with an img element
         clientRows.mode.textContent = 'MJPEG';
+        clientRows.codec.textContent = 'JPEG';
         clientRows.resolution.textContent = image.naturalWidth > 0 ? `${image.naturalWidth}x${image.naturalHeight}` : '-';
-        for (const key of ['received', 'drawn', 'dropped', 'receiveLatency', 'publishLatency', 'drawLatency', 'decodeTime', 'size', 'bitrate', 'faces', 'detectionLag', 'motionCells']) {
+        for (const key of ['received', 'drawn', 'dropped', 'receiveLatency', 'publishLatency', 'drawLatency', 'decodeTime', 'size', 'bitrate', 'faces', 'detectionLag', 'motionCells', 'objects']) {
             clientRows[key].textContent = '-';
         }
     }
@@ -248,6 +294,19 @@ async function updateServerStats() {
     serverRows.sentLatency.textContent = formatTime(status.sentLatency);
     serverRows.jpegSize.textContent = `${status.jpegSize.toFixed(1)} KB`;
     serverRows.buffers.textContent = `${status.buffers}`;
+    serverRows.h264.textContent = status.h264Error ?? (status.h264Enabled ? (status.h264Encoder !== null ? `${status.h264Encoder} (${status.h264Hardware ? 'hardware' : 'software'})` : 'Not started') : 'Off');
+    serverRows.h264Clients.textContent = `${status.h264Clients}`;
+    serverRows.h264Encode.textContent = formatFps(status.h264EncodeFps);
+    serverRows.h264Send.textContent = formatFps(status.h264SendFps);
+    serverRows.h264Skip.textContent = formatFps(status.h264SkipFps);
+    serverRows.h264Drop.textContent = formatFps(status.h264DropFps);
+    serverRows.h264KeyFrames.textContent = `${status.h264KeyFrameFps.toFixed(1)} /s`;
+    serverRows.h264InputTime.textContent = formatTime(status.h264InputTime, 3);
+    serverRows.h264EncodeTime.textContent = formatTime(status.h264EncodeTime);
+    serverRows.h264StreamLatency.textContent = formatTime(status.h264StreamLatency);
+    serverRows.h264SentLatency.textContent = formatTime(status.h264SentLatency);
+    serverRows.h264Bitrate.textContent = `${(status.h264Bitrate / 1000).toFixed(2)} Mbps`;
+    serverRows.h264Buffers.textContent = `${status.h264Buffers}`;
     serverRows.detection.textContent = status.detectionError ?? (status.detectionEnabled ? (status.motionGate ? 'On (on motion)' : 'On') : 'Off');
     serverRows.detect.textContent = formatFps(status.detectFps);
     serverRows.preprocessTime.textContent = formatTime(status.preprocessTime, 3);
@@ -255,6 +314,11 @@ async function updateServerStats() {
     serverRows.faces.textContent = `${status.faces}`;
     serverRows.motion.textContent = status.motionEnabled ? `${status.moving ? 'Moving' : 'Still'} ${status.motionLevel.toFixed(1)} %` : 'Off';
     serverRows.motionTime.textContent = formatTime(status.motionTime, 3);
+    serverRows.objectDetection.textContent = status.objectError ?? (status.objectEnabled ? (status.motionGate ? 'On (on motion)' : 'On') : 'Off');
+    serverRows.objectDetect.textContent = formatFps(status.objectFps);
+    serverRows.objectPreprocess.textContent = formatTime(status.objectPreprocessTime, 3);
+    serverRows.objectInference.textContent = formatTime(status.objectInferenceTime);
+    serverRows.objects.textContent = `${status.objects}`;
     const totalCells = area.columns * area.rows;
     serverRows.area.textContent = status.areaCells === totalCells ? 'Full' : `${status.areaCells} / ${totalCells} cells`;
     serverRows.cpu.textContent = `${status.cpuUsage.toFixed(2)} %`;
@@ -263,6 +327,10 @@ async function updateServerStats() {
 
     syncOptions(status);
     syncArea(status);
+    h264Enabled = status.h264Enabled;
+    if ((mode === 'h264') && !h264Enabled) {
+        setState(H264_DISABLED);
+    }
 }
 
 //--------------------------------------------------------------------------------
@@ -360,6 +428,59 @@ function drawMotion(motion, width, height) {
     context.beginPath();
     addCells(motion.mask, motion.columns, motion.rows, width, height, true);
     context.fill();
+}
+
+function readObjects(view, offset) {
+    const count = view.getUint16(offset + 4, true);
+    const objects = [];
+    for (let i = 0; i < count; i++) {
+        const position = offset + OBJECT_SECTION_LENGTH + (i * OBJECT_LENGTH);
+        objects.push({
+            left: view.getFloat32(position, true),
+            top: view.getFloat32(position + 4, true),
+            right: view.getFloat32(position + 8, true),
+            bottom: view.getFloat32(position + 12, true),
+            confidence: view.getFloat32(position + 16, true),
+            classId: view.getUint16(position + 20, true)
+        });
+    }
+    return { sequence: view.getUint32(offset, true), objects };
+}
+
+// Class names and groups by the class id
+let objectLabels = [];
+
+async function loadObjectLabels() {
+    try {
+        const response = await fetch('/api/objects/labels', { cache: 'no-store' });
+        if (response.ok) {
+            objectLabels = await response.json();
+        }
+    } catch {
+        // Server not reachable, loaded again when the socket is connected
+    }
+}
+
+function drawObjects(objects, width, height) {
+    if (objects.length === 0) {
+        return;
+    }
+
+    const lineWidth = Math.max(2, Math.round(width / 320));
+    const fontSize = Math.max(12, Math.round(height / 30));
+    context.lineWidth = lineWidth;
+    context.font = `${fontSize}px "Segoe UI", sans-serif`;
+    context.textBaseline = 'bottom';
+    for (const value of objects) {
+        const label = objectLabels[value.classId];
+        const color = GROUP_COLORS[label?.group ?? 'other'];
+        const x = value.left * width;
+        const y = value.top * height;
+        context.strokeStyle = color;
+        context.fillStyle = color;
+        context.strokeRect(x, y, (value.right - value.left) * width, (value.bottom - value.top) * height);
+        context.fillText(`${label?.name ?? value.classId} ${Math.floor(value.confidence * 100)}%`, x, Math.max(fontSize, y - lineWidth));
+    }
 }
 
 function drawFaces(boxes, width, height) {
@@ -615,10 +736,16 @@ areaReset.addEventListener('click', () => {
 // WebSocket
 //--------------------------------------------------------------------------------
 
+const H264_DISABLED = 'H.264 is disabled on the server';
+
+// 'ws': WebSocket (JPEG), 'h264': WebSocket (H.264), 'mjpeg': MJPEG
 let mode = 'ws';
 let socket = null;
 let pending = null;
 let decoding = false;
+
+// Setting of the server (the connection is refused while it is disabled)
+let h264Enabled = true;
 
 function setState(text) {
     state.textContent = text;
@@ -626,19 +753,31 @@ function setState(text) {
 
 function openSocket() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+    const socketMode = mode;
+    const ws = new WebSocket(`${protocol}//${location.host}${socketMode === 'h264' ? '/ws-h264' : '/ws'}`);
     ws.binaryType = 'arraybuffer';
-    ws.onopen = () => setState('Connected (WebSocket)');
-    ws.onmessage = (e) => receive(e.data);
+    ws.onopen = () => {
+        setState(socketMode === 'h264' ? 'Connected (H.264)' : 'Connected (WebSocket)');
+        if (objectLabels.length === 0) {
+            loadObjectLabels();
+        }
+    };
+    ws.onmessage = (e) => {
+        if (socket === ws) {
+            receive(e.data);
+        }
+    };
     ws.onclose = () => {
         if (socket !== ws) {
             return;
         }
 
         socket = null;
-        setState('Disconnected, reconnecting...');
+        // The server sends the frames from a key frame after the reconnection
+        resetDecoder();
+        setState((socketMode === 'h264') && !h264Enabled ? H264_DISABLED : 'Disconnected, reconnecting...');
         setTimeout(() => {
-            if ((mode === 'ws') && (socket === null)) {
+            if ((mode === socketMode) && (socket === null)) {
                 openSocket();
             }
         }, RECONNECT_DELAY);
@@ -661,13 +800,19 @@ function receive(data) {
         return;
     }
 
-    // The motion section follows the face section
+    // The sections are in the order of the faces, the motion and the objects
     const flags = view.getUint32(12, true);
     let offset = BASE_HEADER_LENGTH;
     let faces = null;
     if ((flags & FACE_SECTION_FLAG) !== 0) {
         faces = readFaces(view, offset);
         offset += FACE_SECTION_LENGTH + (faces.boxes.length * FACE_LENGTH);
+    }
+
+    let motion = null;
+    if ((flags & MOTION_SECTION_FLAG) !== 0) {
+        motion = readMotion(view, offset);
+        offset += MOTION_SECTION_LENGTH + motion.mask.length;
     }
 
     const frame = {
@@ -677,8 +822,10 @@ function receive(data) {
         sequence: view.getUint32(8, true),
         captureTime: view.getFloat64(16, true),
         encodedTime: view.getFloat64(24, true),
+        keyFrame: (flags & KEY_FRAME_FLAG) !== 0,
         faces,
-        motion: (flags & MOTION_SECTION_FLAG) !== 0 ? readMotion(view, offset) : null,
+        motion,
+        objects: (flags & OBJECT_SECTION_FLAG) !== 0 ? readObjects(view, offset) : null,
         data
     };
 
@@ -688,8 +835,14 @@ function receive(data) {
     client.publishLatency.add(receivedAt - frame.encodedTime);
     client.faces = frame.faces !== null ? frame.faces.boxes.length : null;
     client.motionCells = frame.motion !== null ? frame.motion.cells : null;
+    client.objects = frame.objects !== null ? frame.objects.objects.length : null;
     if ((frame.faces !== null) && (frame.faces.sequence > 0)) {
         client.detectionLag.add(frame.sequence - frame.faces.sequence);
+    }
+
+    if (mode === 'h264') {
+        decodeH264(frame);
+        return;
     }
 
     // Keep only the latest frame while decoding
@@ -711,7 +864,7 @@ async function decodeLoop() {
             const start = now();
             const bitmap = await createImageBitmap(new Blob([new Uint8Array(frame.data, frame.headerLength)], { type: 'image/jpeg' }));
             client.decodeTime.add(now() - start);
-            draw(bitmap, frame);
+            draw(bitmap, bitmap.width, bitmap.height, frame);
             bitmap.close();
         } catch (e) {
             console.warn('Decode failed.', e);
@@ -720,25 +873,153 @@ async function decodeLoop() {
     decoding = false;
 }
 
-function draw(bitmap, frame) {
-    if ((canvas.width !== bitmap.width) || (canvas.height !== bitmap.height)) {
-        canvas.width = bitmap.width;
-        canvas.height = bitmap.height;
+// The image is an ImageBitmap (JPEG) or a VideoFrame (H.264)
+function draw(source, width, height, frame) {
+    if ((canvas.width !== width) || (canvas.height !== height)) {
+        canvas.width = width;
+        canvas.height = height;
     }
 
-    context.drawImage(bitmap, 0, 0);
-    drawArea(bitmap.width, bitmap.height);
+    context.drawImage(source, 0, 0);
+    drawArea(width, height);
     if (frame.motion !== null) {
-        drawMotion(frame.motion, bitmap.width, bitmap.height);
+        drawMotion(frame.motion, width, height);
+    }
+    if (frame.objects !== null) {
+        drawObjects(frame.objects.objects, width, height);
     }
     if (frame.faces !== null) {
-        drawFaces(frame.faces.boxes, bitmap.width, bitmap.height);
+        drawFaces(frame.faces.boxes, width, height);
     }
 
     client.drawn++;
-    client.width = bitmap.width;
-    client.height = bitmap.height;
+    client.width = width;
+    client.height = height;
     client.drawLatency.add(now() - frame.captureTime);
+}
+
+//--------------------------------------------------------------------------------
+// H.264 (WebCodecs)
+//--------------------------------------------------------------------------------
+
+const h264 = {
+    decoder: null,
+    // Configuration of the decoder
+    codec: null,
+    width: 0,
+    height: 0,
+    // Frames in the decoder by the chunk timestamp
+    frames: new Map(),
+    nextTimestamp: 0,
+    // Delta frames are not decoded until a key frame
+    waitingKeyFrame: true,
+    lastKeyFrameRequest: 0
+};
+
+const isWebCodecsAvailable = () => typeof VideoDecoder !== 'undefined';
+
+// Codec string for WebCodecs (avc1.PPCCLL: profile_idc, constraint flags, level_idc) from the SPS, null without an SPS
+function getCodecString(data) {
+    const hex = (value) => value.toString(16).toUpperCase().padStart(2, '0');
+    for (let i = 0; i + 6 < data.length; i++) {
+        if ((data[i] === 0) && (data[i + 1] === 0) && (data[i + 2] === 1)) {
+            if ((data[i + 3] & 0x1f) === 7) {
+                return `avc1.${hex(data[i + 4])}${hex(data[i + 5])}${hex(data[i + 6])}`;
+            }
+            i += 2;
+        }
+    }
+    return null;
+}
+
+function resetDecoder() {
+    if ((h264.decoder !== null) && (h264.decoder.state !== 'closed')) {
+        h264.decoder.close();
+    }
+    h264.decoder = null;
+    h264.codec = null;
+    h264.frames.clear();
+    h264.waitingKeyFrame = true;
+}
+
+// Any text message asks the server for a key frame
+function requestKeyFrame() {
+    h264.waitingKeyFrame = true;
+    const time = now();
+    if ((socket !== null) && (socket.readyState === WebSocket.OPEN) && (time - h264.lastKeyFrameRequest > KEY_FRAME_REQUEST_INTERVAL)) {
+        h264.lastKeyFrameRequest = time;
+        socket.send('key');
+    }
+}
+
+function createDecoder() {
+    return new VideoDecoder({
+        output: (videoFrame) => {
+            const frame = h264.frames.get(videoFrame.timestamp);
+            h264.frames.delete(videoFrame.timestamp);
+            if (frame !== undefined) {
+                client.decodeTime.add(now() - frame.decodeStart);
+                draw(videoFrame, videoFrame.displayWidth, videoFrame.displayHeight, frame);
+            }
+            videoFrame.close();
+        },
+        error: (e) => {
+            // The decoder is closed, created again with the next key frame
+            console.warn('Decode failed.', e);
+            setState(`H.264 decode failed: ${e.message}`);
+            h264.decoder = null;
+            h264.codec = null;
+            h264.frames.clear();
+            requestKeyFrame();
+        }
+    });
+}
+
+function decodeH264(frame) {
+    const data = new Uint8Array(frame.data, frame.headerLength);
+    if (frame.keyFrame) {
+        // The key frame has the SPS, the decoder is configured again when the stream changes
+        const codec = getCodecString(data);
+        if ((codec !== null) && ((h264.decoder === null) || (codec !== h264.codec) || (frame.width !== h264.width) || (frame.height !== h264.height))) {
+            try {
+                h264.decoder ??= createDecoder();
+                // Annex B (no description), the frames are output in the decode order
+                h264.decoder.configure({ codec, codedWidth: frame.width, codedHeight: frame.height, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' });
+                h264.codec = codec;
+                h264.width = frame.width;
+                h264.height = frame.height;
+            } catch (e) {
+                console.warn('Configure failed.', e);
+                setState(`H.264 configure failed: ${e.message}`);
+                resetDecoder();
+            }
+        }
+        if (h264.decoder !== null) {
+            h264.waitingKeyFrame = false;
+        }
+    } else if (!h264.waitingKeyFrame && (h264.decoder !== null) && (h264.decoder.decodeQueueSize >= MAX_DECODE_QUEUE)) {
+        // The decoder is slower than the stream
+        requestKeyFrame();
+    }
+
+    if ((h264.decoder === null) || h264.waitingKeyFrame) {
+        client.dropped++;
+        requestKeyFrame();
+        return;
+    }
+
+    const timestamp = h264.nextTimestamp++;
+    frame.decodeStart = now();
+    h264.frames.set(timestamp, frame);
+    // A frame the decoder did not output is not kept
+    h264.frames.delete(timestamp - MAX_DECODE_FRAMES);
+    try {
+        h264.decoder.decode(new EncodedVideoChunk({ type: frame.keyFrame ? 'key' : 'delta', timestamp, data }));
+    } catch (e) {
+        console.warn('Decode failed.', e);
+        resetDecoder();
+        requestKeyFrame();
+    }
 }
 
 //--------------------------------------------------------------------------------
@@ -746,16 +1027,21 @@ function draw(bitmap, frame) {
 //--------------------------------------------------------------------------------
 
 function setMode(value) {
+    closeSocket();
+    pending = null;
+    resetDecoder();
     mode = value;
-    if (mode === 'ws') {
+    if (mode !== 'mjpeg') {
         image.removeAttribute('src');
         image.hidden = true;
         canvas.hidden = false;
         areaEdit.disabled = false;
+        if ((mode === 'h264') && !isWebCodecsAvailable()) {
+            setState('WebCodecs is not available (localhost or HTTPS is needed)');
+            return;
+        }
         openSocket();
     } else {
-        closeSocket();
-        pending = null;
         // The area is edited on the canvas
         areaEdit.checked = false;
         areaEdit.disabled = true;

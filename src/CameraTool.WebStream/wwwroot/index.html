@@ -17,9 +17,11 @@
             <h2>Stream</h2>
             <div class="modes">
                 <label><input type="radio" name="mode" value="ws" checked /> WebSocket</label>
+                <label><input type="radio" name="mode" value="h264" /> WebSocket (H.264)</label>
                 <label><input type="radio" name="mode" value="mjpeg" /> MJPEG</label>
             </div>
             <label class="option"><input id="detection" type="checkbox" /> Face detection (WebSocket only)</label>
+            <label class="option"><input id="objects" type="checkbox" /> Object detection (WebSocket only)</label>
             <label class="option"><input id="motion" type="checkbox" /> Motion detection (WebSocket only)</label>
             <label class="option"><input id="motionGate" type="checkbox" /> Detect only on motion</label>
             <label class="option"><input id="areaEdit" type="checkbox" /> Edit area (WebSocket only)</label>
@@ -32,7 +34,7 @@
             <h2>Server</h2>
             <dl id="server" class="stats"></dl>
 
-            <p class="note">Latency is measured against the browser clock, so it is valid only when the browser runs on the same PC as the server. "Draw" is the time drawImage is called, before the frame is composited.</p>
+            <p class="note">Latency is measured against the browser clock, so it is valid only when the browser runs on the same PC as the server. "Draw" is the time drawImage is called, before the frame is composited. H.264 is decoded with WebCodecs, which needs a secure context (localhost or HTTPS).</p>
         </aside>
     </main>
 </body>

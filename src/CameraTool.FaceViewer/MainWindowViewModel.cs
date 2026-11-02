@@ -33,6 +33,8 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
 
     private readonly VideoSource videoSource;
 
+    private readonly ObjectBox[] objectBoxes = new ObjectBox[ObjectDetectionService.MaxObjects];
+
     private readonly TimeSpan motionHoldTime;
 
     private readonly Dispatcher dispatcher;
@@ -48,6 +50,8 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     private long lastDisplayedFrames;
 
     private long lastDetectedFrames;
+
+    private long lastObjectFrames;
 
     private TimeSpan lastProcessorTime;
 
@@ -66,6 +70,8 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     public MotionService Motion { get; }
 
     public AreaService Area { get; }
+
+    public ObjectDetectionService ObjectDetection { get; }
 
     public IReadOnlyList<FrameConversion> Conversions { get; } = Enum.GetValues<FrameConversion>();
 
@@ -190,6 +196,31 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     public partial double MotionTimeMax { get; set; }
 
     [ObservableProperty]
+    public partial bool IsObjectDetectionEnabled { get; set; }
+
+    [ObservableProperty]
+    public partial string? ObjectError { get; set; }
+
+    [ObservableProperty]
+    public partial double ObjectFps { get; set; }
+
+    [ObservableProperty]
+    public partial double ObjectPreprocessTime { get; set; }
+
+    [ObservableProperty]
+    public partial double ObjectPreprocessTimeMax { get; set; }
+
+    [ObservableProperty]
+    public partial double ObjectInferenceTime { get; set; }
+
+    [ObservableProperty]
+    public partial double ObjectInferenceTimeMax { get; set; }
+
+    // Count and the count of each class
+    [ObservableProperty]
+    public partial string ObjectStatus { get; set; } = "0";
+
+    [ObservableProperty]
     public partial bool IsAreaEditing { get; set; }
 
     [ObservableProperty]
@@ -211,7 +242,9 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         VideoSource videoSource,
         FaceDetectionService faceDetection,
         MotionService motion,
-        AreaService area)
+        AreaService area,
+        DetectionGate gate,
+        ObjectDetectionService objectDetection)
     {
         this.log = log;
         this.timeProvider = timeProvider;
@@ -220,12 +253,14 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         FaceDetection = faceDetection;
         Motion = motion;
         Area = area;
+        ObjectDetection = objectDetection;
         dispatcher = Application.Current.Dispatcher;
         SelectedConversion = videoSource.Conversion;
         SelectedUpdateMode = displaySettings.UpdateMode;
         IsDetectionEnabled = faceDetection.IsEnabled;
         IsMotionEnabled = motion.IsEnabled;
-        IsMotionGateEnabled = faceDetection.IsMotionGateEnabled;
+        IsMotionGateEnabled = gate.IsEnabled;
+        IsObjectDetectionEnabled = objectDetection.IsEnabled;
 
         StartCommand = MakeAsyncCommand(StartAsync, () => !IsRunning && (SelectedDevice is not null) && (SelectedFormat is not null));
         StopCommand = MakeAsyncCommand(videoSource.StopCaptureAsync, () => IsRunning);
@@ -239,7 +274,8 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         });
         SubscribeIsDetectionEnabled(x => faceDetection.IsEnabled = x);
         SubscribeIsMotionEnabled(x => motion.IsEnabled = x);
-        SubscribeIsMotionGateEnabled(x => faceDetection.IsMotionGateEnabled = x);
+        SubscribeIsMotionGateEnabled(x => gate.IsEnabled = x);
+        SubscribeIsObjectDetectionEnabled(x => objectDetection.IsEnabled = x);
 
         videoSource.StateChanged += OnStateChanged;
         area.Changed += OnAreaChanged;
@@ -344,6 +380,7 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         lastCapturedFrames = videoSource.CapturedFrames;
         lastDisplayedFrames = videoSource.Frames.DisplayedFrames;
         lastDetectedFrames = FaceDetection.DetectedFrames;
+        lastObjectFrames = ObjectDetection.DetectedFrames;
         lastProcessorTime = GetProcessorTime();
         lastAllocatedBytes = GC.GetTotalAllocatedBytes();
         lastGc0Count = GC.CollectionCount(0);
@@ -392,6 +429,17 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         MotionTime = motionTime.Average.TotalMilliseconds;
         MotionTimeMax = motionTime.Max.TotalMilliseconds;
 
+        var objectFrames = ObjectDetection.DetectedFrames;
+        ObjectFps = (objectFrames - lastObjectFrames) / elapsed;
+        var objectPreprocess = ObjectDetection.TakePreprocessTime();
+        ObjectPreprocessTime = objectPreprocess.Average.TotalMilliseconds;
+        ObjectPreprocessTimeMax = objectPreprocess.Max.TotalMilliseconds;
+        var objectInference = ObjectDetection.TakeInferenceTime();
+        ObjectInferenceTime = objectInference.Average.TotalMilliseconds;
+        ObjectInferenceTimeMax = objectInference.Max.TotalMilliseconds;
+        ObjectStatus = FormatObjects();
+        ObjectError = ObjectDetection.ErrorMessage;
+
         var processorTime = GetProcessorTime();
         CpuUsage = (processorTime - lastProcessorTime).TotalSeconds / elapsed / Environment.ProcessorCount * 100;
 
@@ -409,6 +457,7 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         lastCapturedFrames = capturedFrames;
         lastDisplayedFrames = displayedFrames;
         lastDetectedFrames = detectedFrames;
+        lastObjectFrames = objectFrames;
         lastProcessorTime = processorTime;
         lastAllocatedBytes = allocatedBytes;
         lastGc0Count = gc0Count;
@@ -450,7 +499,31 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
                 MotionLevel,
                 MotionTime,
                 MotionTimeMax);
+            log.DebugObjectStatistics(
+                IsObjectDetectionEnabled,
+                ObjectFps,
+                ObjectPreprocessTime,
+                ObjectPreprocessTimeMax,
+                ObjectInferenceTime,
+                ObjectInferenceTimeMax,
+                ObjectStatus);
         }
+    }
+
+    // "3 (person 2, dog 1)", once a second
+    private string FormatObjects()
+    {
+        var count = ObjectDetection.CopyResults(objectBoxes).Count;
+        if (count == 0)
+        {
+            return "0";
+        }
+
+        var classes = objectBoxes.Take(count)
+            .GroupBy(static x => x.ClassId)
+            .OrderByDescending(static x => x.Count())
+            .Select(static x => String.Create(CultureInfo.InvariantCulture, $"{ObjectLabels.Names[x.Key]} {x.Count()}"));
+        return String.Create(CultureInfo.InvariantCulture, $"{count} ({String.Join(", ", classes)})");
     }
 
     private static TimeSpan GetProcessorTime()

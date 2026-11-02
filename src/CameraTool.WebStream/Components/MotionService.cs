@@ -16,7 +16,7 @@ public sealed class MotionService : IHostedService
 
     private readonly VideoSource source;
 
-    private readonly FrameHub hub;
+    private readonly StreamHubs hubs;
 
     private readonly AreaService area;
 
@@ -71,11 +71,11 @@ public sealed class MotionService : IHostedService
         }
     }
 
-    public MotionService(ILogger<MotionService> log, MotionSettings settings, VideoSource source, FrameHub hub, AreaService area)
+    public MotionService(ILogger<MotionService> log, MotionSettings settings, VideoSource source, StreamHubs hubs, AreaService area)
     {
         this.log = log;
         this.source = source;
-        this.hub = hub;
+        this.hubs = hubs;
         this.area = area;
         detector = new MotionDetector(new MotionDetectorOptions
         {
@@ -142,7 +142,7 @@ public sealed class MotionService : IHostedService
         }
 
         // The results are used only by the stream, the background is created again when a client connects
-        if (!hub.HasClients)
+        if (!hubs.HasClients)
         {
             if (!resetRequested)
             {

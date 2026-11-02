@@ -26,7 +26,7 @@ public sealed class TensorConverterTests
         var tensor = new float[3 * 2 * 2];
 
         // Act
-        TensorConverter.BgraToTensor(bgra, 4 * 4, 4, 4, tensor, 2, 2);
+        TensorConverter.BgraToTensor(bgra, 4 * 4, 4, 4, tensor, 2, 2, TensorNormalization.Centered);
 
         // Assert
         AssertPlane(tensor, 0, 4, 1f);
@@ -46,10 +46,33 @@ public sealed class TensorConverterTests
         var tensor = new float[3];
 
         // Act
-        TensorConverter.BgraToTensor(bgra, 2 * 4, 2, 2, tensor, 1, 1);
+        TensorConverter.BgraToTensor(bgra, 2 * 4, 2, 2, tensor, 1, 1, TensorNormalization.Centered);
 
         // Assert
         Assert.Equal((138.75 - 127) / 128, tensor[0], Tolerance);
+    }
+
+    [Fact]
+    public void BgraToTensorNormalizesToUnitRange()
+    {
+        // Arrange (B = 0, G = 51, R = 255)
+        var bgra = new byte[2 * 2 * 4];
+        for (var i = 0; i < bgra.Length; i += 4)
+        {
+            bgra[i + 1] = 51;
+            bgra[i + 2] = 255;
+            bgra[i + 3] = 255;
+        }
+
+        var tensor = new float[3];
+
+        // Act
+        TensorConverter.BgraToTensor(bgra, 2 * 4, 2, 2, tensor, 1, 1, TensorNormalization.Unit);
+
+        // Assert
+        Assert.Equal(1f, tensor[0], Tolerance);
+        Assert.Equal(0.2f, tensor[1], Tolerance);
+        Assert.Equal(0f, tensor[2], Tolerance);
     }
 
     //--------------------------------------------------------------------------------
@@ -68,7 +91,7 @@ public sealed class TensorConverterTests
         var tensor = new float[3 * 2 * 2];
 
         // Act
-        TensorConverter.Nv12ToTensor(yPlane, 4, uvPlane, 4, 4, 4, range, tensor, 2, 2);
+        TensorConverter.Nv12ToTensor(yPlane, 4, uvPlane, 4, 4, 4, range, tensor, 2, 2, TensorNormalization.Centered);
 
         // Assert
         AssertPlane(tensor, 0, 4, expected);
@@ -95,7 +118,7 @@ public sealed class TensorConverterTests
         var tensor = new float[3 * 2 * 2];
 
         // Act
-        TensorConverter.Yuy2ToTensor(source, 4 * 2, 4, 4, range, tensor, 2, 2);
+        TensorConverter.Yuy2ToTensor(source, 4 * 2, 4, 4, range, tensor, 2, 2, TensorNormalization.Centered);
 
         // Assert
         AssertPlane(tensor, 0, 4, expected);
@@ -110,7 +133,7 @@ public sealed class TensorConverterTests
         var uv = new byte[4 * 2];
         var tensor = new float[(3 * 2 * 2) - 1];
 
-        Assert.Throws<ArgumentException>(() => TensorConverter.Nv12ToTensor(y, 4, uv, 4, 4, 4, YuvRange.Limited, tensor, 2, 2));
+        Assert.Throws<ArgumentException>(() => TensorConverter.Nv12ToTensor(y, 4, uv, 4, 4, 4, YuvRange.Limited, tensor, 2, 2, TensorNormalization.Centered));
     }
 
     //--------------------------------------------------------------------------------
@@ -135,8 +158,8 @@ public sealed class TensorConverterTests
         var actual = new float[expected.Length];
 
         // Act
-        TensorConverter.BgraToTensor(bgra, stride, width, height, expected, destinationWidth, destinationHeight, false);
-        TensorConverter.BgraToTensor(bgra, stride, width, height, actual, destinationWidth, destinationHeight, true);
+        TensorConverter.BgraToTensor(bgra, stride, width, height, expected, destinationWidth, destinationHeight, TensorNormalization.Centered, false);
+        TensorConverter.BgraToTensor(bgra, stride, width, height, actual, destinationWidth, destinationHeight, TensorNormalization.Centered, true);
 
         // Assert
         Assert.Equal(expected, actual);
@@ -165,8 +188,8 @@ public sealed class TensorConverterTests
             var actual = new float[expected.Length];
 
             // Act
-            TensorConverter.Nv12ToTensor(y, yStride, uv, uvStride, width, height, range, expected, destinationWidth, destinationHeight, false);
-            TensorConverter.Nv12ToTensor(y, yStride, uv, uvStride, width, height, range, actual, destinationWidth, destinationHeight, true);
+            TensorConverter.Nv12ToTensor(y, yStride, uv, uvStride, width, height, range, expected, destinationWidth, destinationHeight, TensorNormalization.Centered, false);
+            TensorConverter.Nv12ToTensor(y, yStride, uv, uvStride, width, height, range, actual, destinationWidth, destinationHeight, TensorNormalization.Centered, true);
 
             // Assert
             Assert.Equal(expected, actual);
@@ -193,12 +216,43 @@ public sealed class TensorConverterTests
             var actual = new float[expected.Length];
 
             // Act
-            TensorConverter.Yuy2ToTensor(source, stride, width, height, range, expected, destinationWidth, destinationHeight, false);
-            TensorConverter.Yuy2ToTensor(source, stride, width, height, range, actual, destinationWidth, destinationHeight, true);
+            TensorConverter.Yuy2ToTensor(source, stride, width, height, range, expected, destinationWidth, destinationHeight, TensorNormalization.Centered, false);
+            TensorConverter.Yuy2ToTensor(source, stride, width, height, range, actual, destinationWidth, destinationHeight, TensorNormalization.Centered, true);
 
             // Assert
             Assert.Equal(expected, actual);
         }
+    }
+
+    // Object detection input (upscaled to 640x640)
+    [Theory]
+    [InlineData(640, 480)]
+    [InlineData(1280, 720)]
+    public void SimdMatchesScalarWithUnitNormalization(int width, int height)
+    {
+        Assert.SkipUnless(Avx2.IsSupported, "AVX2 is not supported.");
+
+        // Arrange
+        const int size = 640;
+        var y = TestData.CreateRandom(width * height, 7);
+        var uv = TestData.CreateRandom(width * ((height + 1) / 2), 8);
+        var yuy2 = TestData.CreateRandom(width * 2 * height, 9);
+        var expectedNv12 = new float[3 * size * size];
+        var actualNv12 = new float[expectedNv12.Length];
+        var expectedYuy2 = new float[expectedNv12.Length];
+        var actualYuy2 = new float[expectedNv12.Length];
+
+        // Act
+        TensorConverter.Nv12ToTensor(y, width, uv, width, width, height, YuvRange.Limited, expectedNv12, size, size, TensorNormalization.Unit, false);
+        TensorConverter.Nv12ToTensor(y, width, uv, width, width, height, YuvRange.Limited, actualNv12, size, size, TensorNormalization.Unit, true);
+        TensorConverter.Yuy2ToTensor(yuy2, width * 2, width, height, YuvRange.Limited, expectedYuy2, size, size, TensorNormalization.Unit, false);
+        TensorConverter.Yuy2ToTensor(yuy2, width * 2, width, height, YuvRange.Limited, actualYuy2, size, size, TensorNormalization.Unit, true);
+
+        // Assert
+        Assert.Equal(expectedNv12, actualNv12);
+        Assert.Equal(expectedYuy2, actualYuy2);
+        Assert.InRange(expectedNv12.Min(), 0f, 1f);
+        Assert.InRange(expectedNv12.Max(), 0f, 1f);
     }
 
     //--------------------------------------------------------------------------------

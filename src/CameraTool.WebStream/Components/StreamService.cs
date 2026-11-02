@@ -7,7 +7,7 @@ using CameraTool.Capture;
 using CameraTool.Vision;
 using CameraTool.WebStream.Settings;
 
-// Encodes the frame on the capture thread and publishes it with the latest detection results (faces and motion)
+// Encodes the frame to JPEG on the capture thread and publishes it with the latest detection results (faces, motion and objects)
 public sealed class StreamService : IHostedService, IDisposable
 {
     private const int MinimumCapacity = 16 * 1024;
@@ -22,12 +22,19 @@ public sealed class StreamService : IHostedService, IDisposable
 
     private readonly MotionService motion;
 
+    private readonly ObjectDetectionService objectDetection;
+
     private readonly JpegEncoder encoder;
 
     // Detection results attached to the frame (capture thread only)
     private readonly FaceBox[] faces = new FaceBox[FaceDetectionService.MaxFaces];
 
     private readonly byte[] motionMask = new byte[MotionDetector.MaskLength];
+
+    private readonly ObjectBox[] objects = new ObjectBox[ObjectDetectionService.MaxObjects];
+
+    // Full range (JFIF), capture thread only
+    private readonly Nv12Planes planes = new(true);
 
     private readonly FramePool pool = new();
 
@@ -36,9 +43,6 @@ public sealed class StreamService : IHostedService, IDisposable
     private readonly LatencyCounter encodeTime = new();
 
     private readonly LatencyCounter streamLatency = new();
-
-    // Full range NV12 converted from the frame (capture thread only)
-    private byte[] planes = [];
 
     private long encodedFrames;
 
@@ -50,13 +54,14 @@ public sealed class StreamService : IHostedService, IDisposable
 
     public int AllocatedFrames => pool.Created;
 
-    public StreamService(ILogger<StreamService> log, StreamSettings settings, VideoSource source, FrameHub hub, FaceDetectionService detection, MotionService motion)
+    public StreamService(ILogger<StreamService> log, StreamSettings settings, VideoSource source, StreamHubs hubs, FaceDetectionService detection, MotionService motion, ObjectDetectionService objectDetection)
     {
         this.log = log;
         this.source = source;
-        this.hub = hub;
+        hub = hubs.Jpeg;
         this.detection = detection;
         this.motion = motion;
+        this.objectDetection = objectDetection;
         encoder = new JpegEncoder(settings.Quality);
     }
 
@@ -125,7 +130,7 @@ public sealed class StreamService : IHostedService, IDisposable
     private bool Encode(in FrameBuffer frame, EncodedFrame encoded)
     {
         var start = Stopwatch.GetTimestamp();
-        if (!TryGetPlanes(frame, out var y, out var yStride, out var uv, out var uvStride))
+        if (!planes.TryGet(frame, out var y, out var yStride, out var uv, out var uvStride))
         {
             return false;
         }
@@ -135,7 +140,7 @@ public sealed class StreamService : IHostedService, IDisposable
         var height = frame.Height;
         var capacity = Math.Max((width * height) / 4, MinimumCapacity);
         int written;
-        while (!encoder.TryEncodeNv12(y, yStride, uv, uvStride, width, height, encoded.GetJpegBuffer(capacity), out written))
+        while (!encoder.TryEncodeNv12(y, yStride, uv, uvStride, width, height, encoded.GetDataBuffer(capacity), out written))
         {
             capacity = Math.Min(capacity * 2, JpegEncoder.GetMaxLength(width, height));
             log.DebugEncodeBufferExpanded(capacity);
@@ -144,6 +149,7 @@ public sealed class StreamService : IHostedService, IDisposable
         // Latest detection results, detected in a previous frame
         FaceDetectionInfo? detected = detection.IsEnabled && detection.IsAvailable ? detection.CopyResults(faces) : null;
         MotionInfo? moved = motion.IsEnabled ? motion.CopyResults(motionMask) : null;
+        ObjectDetectionInfo? found = objectDetection.IsEnabled && objectDetection.IsAvailable ? objectDetection.CopyResults(objects) : null;
 
         // Unix time of the capture, calculated from the capture clock
         var now = CaptureClock.Now;
@@ -158,80 +164,18 @@ public sealed class StreamService : IHostedService, IDisposable
             Detection = detected,
             Faces = faces,
             Motion = moved,
-            MotionMask = motionMask
+            MotionMask = motionMask,
+            ObjectDetection = found,
+            Objects = objects
         };
         var headerLength = StreamProtocol.GetHeaderLength(header);
         StreamProtocol.WriteHeader(encoded.GetHeaderBuffer(headerLength), header);
-        encoded.Commit(Interlocked.Increment(ref encodedFrames), headerLength, written);
+        encoded.Commit(Interlocked.Increment(ref encodedFrames), headerLength, written, false);
 
         Interlocked.Add(ref encodedBytes, written);
         convertTime.Add(Stopwatch.GetElapsedTime(start, converted));
         encodeTime.Add(Stopwatch.GetElapsedTime(converted));
         streamLatency.Add(now - frame.ArrivalTime);
         return true;
-    }
-
-    // Full range NV12 planes for the encoder
-    private bool TryGetPlanes(in FrameBuffer frame, out ReadOnlySpan<byte> y, out int yStride, out ReadOnlySpan<byte> uv, out int uvStride)
-    {
-        var width = frame.Width;
-        var height = frame.Height;
-        switch (frame.PixelFormat)
-        {
-            case VideoPixelFormat.Nv12 when frame.ColorRange == VideoColorRange.Full:
-                // Passed without copy
-                y = frame.GetPlaneSpan(frame.Plane0);
-                yStride = frame.Plane0.Stride;
-                uv = frame.GetPlaneSpan(frame.Plane1);
-                uvStride = frame.Plane1.Stride;
-                return true;
-            case VideoPixelFormat.Nv12:
-            {
-                // YUV without range information is treated as video range
-                var stride = PreparePlanes(width, height);
-                var destinationY = planes.AsSpan(0, stride * height);
-                var destinationUv = planes.AsSpan(stride * height);
-                ImageConverter.Nv12ToFullRange(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.GetPlaneSpan(frame.Plane1), frame.Plane1.Stride, destinationY, stride, destinationUv, stride, width, height);
-                y = destinationY;
-                uv = destinationUv;
-                yStride = stride;
-                uvStride = stride;
-                return true;
-            }
-
-            case VideoPixelFormat.Yuy2:
-            {
-                var stride = PreparePlanes(width, height);
-                var destinationY = planes.AsSpan(0, stride * height);
-                var destinationUv = planes.AsSpan(stride * height);
-                var range = frame.ColorRange == VideoColorRange.Full ? YuvRange.Full : YuvRange.Limited;
-                ImageConverter.Yuy2ToNv12(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, destinationY, stride, destinationUv, stride, width, height, range);
-                y = destinationY;
-                uv = destinationUv;
-                yStride = stride;
-                uvStride = stride;
-                return true;
-            }
-
-            default:
-                y = default;
-                uv = default;
-                yStride = 0;
-                uvStride = 0;
-                return false;
-        }
-    }
-
-    // Returns the stride of both planes
-    private int PreparePlanes(int width, int height)
-    {
-        var stride = ((width + 1) / 2) * 2;
-        var size = (stride * height) + (stride * ((height + 1) / 2));
-        if (planes.Length != size)
-        {
-            planes = GC.AllocateUninitializedArray<byte>(size);
-        }
-
-        return stride;
     }
 }

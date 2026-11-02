@@ -24,6 +24,9 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Information, Message = "Stream: quality=[{quality}]")]
     public static partial void InfoServiceSettingsStream(this ILogger logger, int quality);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "H264: enable=[{enable}], bitrate=[{bitrate}], keyFrameInterval=[{keyFrameInterval}], preferHardware=[{preferHardware}]")]
+    public static partial void InfoServiceSettingsH264(this ILogger logger, bool enable, int bitrate, int keyFrameInterval, bool preferHardware);
+
     // Camera
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Camera devices found. count=[{count}]")]
@@ -64,6 +67,17 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Debug, Message = "Encode buffer expanded. capacity=[{capacity}]")]
     public static partial void DebugEncodeBufferExpanded(this ILogger logger, int capacity);
 
+    // H.264
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "H.264 encoder created. name=[{name}], hardware=[{hardware}], size=[{width}x{height}], fullRange=[{fullRange}], fps=[{fps}], bitrate=[{bitrate}], keyFrameInterval=[{keyFrameInterval}], elapsed=[{elapsed:F1}ms]")]
+    public static partial void InfoH264EncoderCreated(this ILogger logger, string name, bool hardware, int width, int height, bool fullRange, int fps, int bitrate, int keyFrameInterval, double elapsed);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "H.264 encoder create failed. size=[{width}x{height}]")]
+    public static partial void ErrorH264EncoderCreateFailed(this ILogger logger, Exception ex, int width, int height);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "H.264 encoder released. name=[{name}]")]
+    public static partial void InfoH264EncoderReleased(this ILogger logger, string name);
+
     // Detection
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Face detector loaded. model=[{model}], input=[{width}x{height}], elapsed=[{elapsed:F1}ms]")]
@@ -77,6 +91,15 @@ internal static partial class Log
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Motion gate changed. enabled=[{enabled}]")]
     public static partial void InfoMotionGateChanged(this ILogger logger, bool enabled);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Object detector loaded. model=[{model}], input=[{width}x{height}], elapsed=[{elapsed:F1}ms]")]
+    public static partial void InfoObjectDetectorLoaded(this ILogger logger, string model, int width, int height, double elapsed);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Object detector load failed. model=[{model}]")]
+    public static partial void ErrorObjectDetectorLoadFailed(this ILogger logger, Exception ex, string model);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Object detection changed. enabled=[{enabled}]")]
+    public static partial void InfoObjectDetectionChanged(this ILogger logger, bool enabled);
 
     // Motion
 
@@ -102,11 +125,33 @@ internal static partial class Log
 
     // Statistics
 
+    [LoggerMessage(Level = LogLevel.Debug, Message = "H264: clients=[{clients}], encode=[{encodeFps:F1}], send=[{sendFps:F1}], skip=[{skipFps:F1}], drop=[{dropFps:F1}], key=[{keyFrameFps:F1}], input=[{inputTime:F3}/{inputTimeMax:F3}], encodeTime=[{encodeTime:F2}/{encodeTimeMax:F2}], streamLatency=[{streamLatency:F2}/{streamLatencyMax:F2}], sent=[{sent:F2}/{sentMax:F2}], bitrate=[{bitrate:F0}]")]
+    public static partial void DebugH264Statistics(
+        this ILogger logger,
+        int clients,
+        double encodeFps,
+        double sendFps,
+        double skipFps,
+        double dropFps,
+        double keyFrameFps,
+        double inputTime,
+        double inputTimeMax,
+        double encodeTime,
+        double encodeTimeMax,
+        double streamLatency,
+        double streamLatencyMax,
+        double sent,
+        double sentMax,
+        double bitrate);
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "Detection: enabled=[{enabled}], detect=[{detectFps:F1}], preprocess=[{preprocessTime:F3}/{preprocessTimeMax:F3}], inference=[{inferenceTime:F2}/{inferenceTimeMax:F2}], faces=[{faces}]")]
     public static partial void DebugDetectionStatistics(this ILogger logger, bool enabled, double detectFps, double preprocessTime, double preprocessTimeMax, double inferenceTime, double inferenceTimeMax, int faces);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Motion: enabled=[{enabled}], gate=[{gate}], moving=[{moving}], level=[{level:F1}], time=[{time:F3}/{timeMax:F3}]")]
     public static partial void DebugMotionStatistics(this ILogger logger, bool enabled, bool gate, bool moving, double level, double time, double timeMax);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Object: enabled=[{enabled}], detect=[{detectFps:F1}], preprocess=[{preprocessTime:F3}/{preprocessTimeMax:F3}], inference=[{inferenceTime:F2}/{inferenceTimeMax:F2}], objects=[{objects}]")]
+    public static partial void DebugObjectStatistics(this ILogger logger, bool enabled, double detectFps, double preprocessTime, double preprocessTimeMax, double inferenceTime, double inferenceTimeMax, int objects);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Statistics: format=[{format}], clients=[{clients}], capture=[{captureFps:F1}], encode=[{encodeFps:F1}], send=[{sendFps:F1}], skip=[{skipFps:F1}], captureLatency=[{captureLatency:F2}/{captureLatencyMax:F2}], convert=[{convertTime:F3}/{convertTimeMax:F3}], encodeTime=[{encodeTime:F2}/{encodeTimeMax:F2}], streamLatency=[{streamLatency:F2}/{streamLatencyMax:F2}], sendStart=[{sendStart:F2}/{sendStartMax:F2}], sent=[{sent:F2}/{sentMax:F2}], size=[{size:F1}], cpu=[{cpuUsage:F2}], allocated=[{allocated:F1}], gc=[{gc0:F1}/{gc1:F1}/{gc2:F1}]")]
     public static partial void DebugStatistics(

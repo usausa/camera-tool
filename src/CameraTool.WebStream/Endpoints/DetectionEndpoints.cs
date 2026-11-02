@@ -1,5 +1,6 @@
 namespace CameraTool.WebStream.Endpoints;
 
+using CameraTool.Vision;
 using CameraTool.WebStream.Components;
 
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -22,12 +23,23 @@ public sealed class MotionRequest
     public bool? Enabled { get; set; }
 }
 
+public sealed class ObjectRequest
+{
+    public bool? Enabled { get; set; }
+}
+
+// Group: person, animal, vehicle or other
+public sealed record ObjectLabel(string Name, string Group);
+
 //--------------------------------------------------------------------------------
 // Endpoints
 //--------------------------------------------------------------------------------
 
 public static class DetectionEndpoints
 {
+    // In the order of the class ids
+    private static readonly ObjectLabel[] Labels = CreateLabels();
+
     //--------------------------------------------------------------------------------
     // Mapping
     //--------------------------------------------------------------------------------
@@ -36,6 +48,8 @@ public static class DetectionEndpoints
     {
         app.MapPut("/api/detection", HandleDetectionUpdate);
         app.MapPut("/api/motion", HandleMotionUpdate);
+        app.MapPut("/api/objects", HandleObjectUpdate);
+        app.MapGet("/api/objects/labels", HandleObjectLabels);
         app.MapGet("/api/area", HandleArea);
         app.MapPut("/api/area", HandleAreaUpdate);
     }
@@ -44,7 +58,7 @@ public static class DetectionEndpoints
     // Update
     //--------------------------------------------------------------------------------
 
-    private static NoContent HandleDetectionUpdate(DetectionRequest request, FaceDetectionService detection)
+    private static NoContent HandleDetectionUpdate(DetectionRequest request, FaceDetectionService detection, DetectionGate gate)
     {
         if (request.Enabled is { } enabled)
         {
@@ -53,7 +67,7 @@ public static class DetectionEndpoints
 
         if (request.MotionGate is { } motionGate)
         {
-            detection.IsMotionGateEnabled = motionGate;
+            gate.IsEnabled = motionGate;
         }
 
         return TypedResults.NoContent();
@@ -67,6 +81,41 @@ public static class DetectionEndpoints
         }
 
         return TypedResults.NoContent();
+    }
+
+    //--------------------------------------------------------------------------------
+    // Object
+    //--------------------------------------------------------------------------------
+
+    private static NoContent HandleObjectUpdate(ObjectRequest request, ObjectDetectionService objectDetection)
+    {
+        if (request.Enabled is { } enabled)
+        {
+            objectDetection.IsEnabled = enabled;
+        }
+
+        return TypedResults.NoContent();
+    }
+
+    private static Ok<ObjectLabel[]> HandleObjectLabels() =>
+        TypedResults.Ok(Labels);
+
+    private static ObjectLabel[] CreateLabels()
+    {
+        var labels = new ObjectLabel[ObjectLabels.Count];
+        for (var i = 0; i < labels.Length; i++)
+        {
+            var group = ObjectLabels.GetGroup(i) switch
+            {
+                ObjectGroup.Person => "person",
+                ObjectGroup.Animal => "animal",
+                ObjectGroup.Vehicle => "vehicle",
+                _ => "other"
+            };
+            labels[i] = new ObjectLabel(ObjectLabels.Names[i], group);
+        }
+
+        return labels;
     }
 
     //--------------------------------------------------------------------------------

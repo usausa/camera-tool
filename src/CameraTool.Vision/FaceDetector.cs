@@ -43,6 +43,8 @@ public sealed class FaceDetector : IDisposable
     // CHW RGB tensor normalized by (x - 127) / 128
     public Span<float> Input => input;
 
+    public static TensorNormalization Normalization => TensorNormalization.Centered;
+
     public FaceDetector(string modelPath, FaceDetectorOptions options)
     {
         confidenceThreshold = options.ConfidenceThreshold;

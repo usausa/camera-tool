@@ -11,13 +11,13 @@ public static class StreamProtocol
     // WebSocket
     //--------------------------------------------------------------------------------
 
-    // Binary message: header (little endian) + JPEG
+    // Binary message: header (little endian) + JPEG (/ws) or H.264 access unit in Annex B (/ws-h264)
     //  0 uint16  version
-    //  2 uint16  header length (offset of the JPEG data)
+    //  2 uint16  header length (offset of the image data)
     //  4 uint16  width
     //  6 uint16  height
     //  8 uint32  sequence
-    // 12 uint32  flags (bit 0: face section, bit 1: motion section)
+    // 12 uint32  flags (bit 0: face section, bit 1: motion section, bit 2: object section, bit 3: H.264 key frame)
     // 16 float64 capture time (Unix ms)
     // 24 float64 encoded time (Unix ms)
     // Face section (while face detection is enabled)
@@ -31,6 +31,11 @@ public static class StreamProtocol
     // +6 uint8   columns
     // +7 uint8   rows
     // +8 byte[]  cell mask (row major, the lowest bit first)
+    // Object section (while object detection is enabled), after the motion section
+    // +0 uint32  sequence of the frame the objects were detected in (0: not detected yet)
+    // +4 uint16  object count
+    // +6 uint16  reserved
+    // +8 for each object: float32 x 5 (left, top, right, bottom (0-1), confidence), uint16 class id, uint16 reserved
     public const int HeaderVersion = 1;
 
     private const int BaseHeaderLength = 32;
@@ -41,11 +46,23 @@ public static class StreamProtocol
 
     private const int MotionSectionLength = 8 + MotionDetector.MaskLength;
 
+    private const int ObjectSectionLength = 8;
+
+    private const int ObjectLength = 24;
+
     private const uint FaceSectionFlag = 0x1;
 
     private const uint MotionSectionFlag = 0x2;
 
-    public const int MaxHeaderLength = BaseHeaderLength + FaceSectionLength + (FaceLength * FaceDetectionService.MaxFaces) + MotionSectionLength;
+    private const uint ObjectSectionFlag = 0x4;
+
+    private const uint KeyFrameFlag = 0x8;
+
+    public const int MaxHeaderLength =
+        BaseHeaderLength +
+        FaceSectionLength + (FaceLength * FaceDetectionService.MaxFaces) +
+        MotionSectionLength +
+        ObjectSectionLength + (ObjectLength * ObjectDetectionService.MaxObjects);
 
     public static int GetHeaderLength(in FrameHeader header)
     {
@@ -60,13 +77,21 @@ public static class StreamProtocol
             length += MotionSectionLength;
         }
 
+        if (header.ObjectDetection is { } objectDetection)
+        {
+            length += ObjectSectionLength + (ObjectLength * objectDetection.Count);
+        }
+
         return length;
     }
 
     // The destination length must be GetHeaderLength
     public static void WriteHeader(Span<byte> destination, in FrameHeader header)
     {
-        var flags = (header.Detection.HasValue ? FaceSectionFlag : 0) | (header.Motion.HasValue ? MotionSectionFlag : 0);
+        var flags = (header.Detection.HasValue ? FaceSectionFlag : 0) |
+            (header.Motion.HasValue ? MotionSectionFlag : 0) |
+            (header.ObjectDetection.HasValue ? ObjectSectionFlag : 0) |
+            (header.KeyFrame ? KeyFrameFlag : 0);
         BinaryPrimitives.WriteUInt16LittleEndian(destination, HeaderVersion);
         BinaryPrimitives.WriteUInt16LittleEndian(destination[2..], (ushort)destination.Length);
         BinaryPrimitives.WriteUInt16LittleEndian(destination[4..], (ushort)header.Width);
@@ -103,6 +128,26 @@ public static class StreamProtocol
             section[6] = MotionDetector.Columns;
             section[7] = MotionDetector.Rows;
             header.MotionMask[..MotionDetector.MaskLength].CopyTo(section[8..]);
+            section = section[MotionSectionLength..];
+        }
+
+        if (header.ObjectDetection is { } objectDetection)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(section, (uint)objectDetection.Sequence);
+            BinaryPrimitives.WriteUInt16LittleEndian(section[4..], (ushort)objectDetection.Count);
+            BinaryPrimitives.WriteUInt16LittleEndian(section[6..], 0);
+            var offset = ObjectSectionLength;
+            foreach (var value in header.Objects[..objectDetection.Count])
+            {
+                BinaryPrimitives.WriteSingleLittleEndian(section[offset..], value.Left);
+                BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 4)..], value.Top);
+                BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 8)..], value.Right);
+                BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 12)..], value.Bottom);
+                BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 16)..], value.Confidence);
+                BinaryPrimitives.WriteUInt16LittleEndian(section[(offset + 20)..], (ushort)value.ClassId);
+                BinaryPrimitives.WriteUInt16LittleEndian(section[(offset + 22)..], 0);
+                offset += ObjectLength;
+            }
         }
     }
 
@@ -142,6 +187,9 @@ public readonly ref struct FrameHeader
     // Unix ms
     public double EncodedTime { get; init; }
 
+    // H.264 frame that does not depend on the previous frames
+    public bool KeyFrame { get; init; }
+
     // Face section (null: face detection is disabled)
     public FaceDetectionInfo? Detection { get; init; }
 
@@ -151,4 +199,9 @@ public readonly ref struct FrameHeader
     public MotionInfo? Motion { get; init; }
 
     public ReadOnlySpan<byte> MotionMask { get; init; }
+
+    // Object section (null: object detection is disabled)
+    public ObjectDetectionInfo? ObjectDetection { get; init; }
+
+    public ReadOnlySpan<ObjectBox> Objects { get; init; }
 }

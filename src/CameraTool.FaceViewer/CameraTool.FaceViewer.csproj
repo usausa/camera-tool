@@ -60,7 +60,7 @@
       <DependentUpon>appsettings.json</DependentUpon>
       <ExcludeFromSingleFile>True</ExcludeFromSingleFile>
     </Content>
-    <Content Include="version-RFB-320.onnx;version-RFB-320-LICENSE.txt">
+    <Content Include="version-RFB-320.onnx;version-RFB-320-LICENSE.txt;dfine-nano-coco.onnx;dfine-nano-coco-LICENSE.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <ExcludeFromSingleFile>True</ExcludeFromSingleFile>
     </Content>

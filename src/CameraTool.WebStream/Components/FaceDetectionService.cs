@@ -32,15 +32,11 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
 
     private readonly VideoSource source;
 
-    private readonly FrameHub hub;
+    private readonly StreamHubs hubs;
 
-    private readonly MotionService motion;
+    private readonly DetectionGate gate;
 
     private readonly AreaService area;
-
-    private readonly TimeSpan idleInterval;
-
-    private readonly TimeSpan motionHoldTime;
 
     private readonly AutoResetEvent signal = new(false);
 
@@ -59,8 +55,6 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
     private volatile bool stopping;
 
     private volatile bool enabled;
-
-    private volatile bool motionGate;
 
     private FaceDetector? detector;
 
@@ -90,16 +84,6 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
         }
     }
 
-    public bool IsMotionGateEnabled
-    {
-        get => motionGate;
-        set
-        {
-            motionGate = value;
-            log.InfoMotionGateChanged(value);
-        }
-    }
-
     public bool IsAvailable => Volatile.Read(ref detector) is not null;
 
     public string? ErrorMessage { get; private set; }
@@ -117,18 +101,15 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
         }
     }
 
-    public FaceDetectionService(ILogger<FaceDetectionService> log, DetectSettings settings, VideoSource source, FrameHub hub, MotionService motion, AreaService area)
+    public FaceDetectionService(ILogger<FaceDetectionService> log, DetectSettings settings, VideoSource source, StreamHubs hubs, DetectionGate gate, AreaService area)
     {
         this.log = log;
         this.settings = settings;
         this.source = source;
-        this.hub = hub;
-        this.motion = motion;
+        this.hubs = hubs;
+        this.gate = gate;
         this.area = area;
-        idleInterval = TimeSpan.FromMilliseconds(settings.IdleInterval);
-        motionHoldTime = TimeSpan.FromMilliseconds(settings.MotionHoldTime);
         enabled = settings.Enable;
-        motionGate = settings.MotionGate;
     }
 
     public void Dispose()
@@ -259,9 +240,9 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
     {
         // The results are used only by the stream
         if (!enabled ||
-            !hub.HasClients ||
+            !hubs.HasClients ||
             (Volatile.Read(ref detector) is not { } current) ||
-            IsIdle() ||
+            gate.IsIdle(lastPreparedTimestamp) ||
             (Interlocked.CompareExchange(ref state, StatePreparing, StateIdle) != StateIdle))
         {
             return;
@@ -283,12 +264,6 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
         }
     }
 
-    private bool IsIdle() =>
-        motionGate &&
-        motion.IsEnabled &&
-        !motion.IsMoving(motionHoldTime) &&
-        (Stopwatch.GetElapsedTime(lastPreparedTimestamp) < idleInterval);
-
     private static bool Prepare(FaceDetector detector, in FrameBuffer frame)
     {
         var input = detector.Input;
@@ -298,13 +273,13 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
             switch (frame.PixelFormat)
             {
                 case VideoPixelFormat.Bgra8:
-                    TensorConverter.BgraToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.Width, frame.Height, input, detector.InputWidth, detector.InputHeight);
+                    TensorConverter.BgraToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.Width, frame.Height, input, detector.InputWidth, detector.InputHeight, FaceDetector.Normalization);
                     return true;
                 case VideoPixelFormat.Nv12:
-                    TensorConverter.Nv12ToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.GetPlaneSpan(frame.Plane1), frame.Plane1.Stride, frame.Width, frame.Height, range, input, detector.InputWidth, detector.InputHeight);
+                    TensorConverter.Nv12ToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.GetPlaneSpan(frame.Plane1), frame.Plane1.Stride, frame.Width, frame.Height, range, input, detector.InputWidth, detector.InputHeight, FaceDetector.Normalization);
                     return true;
                 case VideoPixelFormat.Yuy2:
-                    TensorConverter.Yuy2ToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.Width, frame.Height, range, input, detector.InputWidth, detector.InputHeight);
+                    TensorConverter.Yuy2ToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.Width, frame.Height, range, input, detector.InputWidth, detector.InputHeight, FaceDetector.Normalization);
                     return true;
                 default:
                     return false;

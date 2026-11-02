@@ -56,14 +56,19 @@ public static class ApplicationExtensions
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<MotionSettings>>().Value);
         builder.Services.AddOptions<AreaSettings>().BindConfiguration("Area").ValidateDataAnnotations().ValidateOnStart();
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<AreaSettings>>().Value);
+        builder.Services.AddOptions<ObjectSettings>().BindConfiguration("Object").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<ObjectSettings>>().Value);
 
-        // Components
+        // Components (the frame is handled in the order of the motion, the face and the object detection)
         builder.Services.AddSingleton<VideoSource>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<VideoSource>());
         builder.Services.AddSingleton<AreaService>();
         builder.Services.AddSingleton<MotionService>();
+        builder.Services.AddSingleton<DetectionGate>();
         builder.Services.AddSingleton<FaceDetectionService>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<FaceDetectionService>());
+        builder.Services.AddSingleton<ObjectDetectionService>();
+        builder.Services.AddHostedService(static p => p.GetRequiredService<ObjectDetectionService>());
 
         // Window
         builder.Services.AddSingleton<MainWindow>();

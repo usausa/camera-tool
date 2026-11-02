@@ -7,12 +7,12 @@ public sealed class EncodedFrame
 {
     private readonly FramePool pool;
 
-    // The JPEG data follows the space reserved for the longest header, the header is placed just before it
+    // The data (JPEG or H.264) follows the space reserved for the longest header, the header is placed just before it
     private byte[] buffer = [];
 
     private int headerLength;
 
-    private int jpegLength;
+    private int dataLength;
 
     private int references;
 
@@ -22,18 +22,21 @@ public sealed class EncodedFrame
     // Stopwatch timestamp
     public long PublishTimestamp { get; private set; }
 
-    // WebSocket message (header + JPEG)
-    public ReadOnlyMemory<byte> Message => buffer.AsMemory(StreamProtocol.MaxHeaderLength - headerLength, headerLength + jpegLength);
+    // H.264 frame that does not depend on the previous frames
+    public bool IsKeyFrame { get; private set; }
 
-    public ReadOnlyMemory<byte> Jpeg => buffer.AsMemory(StreamProtocol.MaxHeaderLength, jpegLength);
+    // WebSocket message (header + data)
+    public ReadOnlyMemory<byte> Message => buffer.AsMemory(StreamProtocol.MaxHeaderLength - headerLength, headerLength + dataLength);
+
+    public ReadOnlyMemory<byte> Data => buffer.AsMemory(StreamProtocol.MaxHeaderLength, dataLength);
 
     internal EncodedFrame(FramePool pool)
     {
         this.pool = pool;
     }
 
-    // Space for the JPEG data
-    internal Span<byte> GetJpegBuffer(int capacity)
+    // Space for the data
+    internal Span<byte> GetDataBuffer(int capacity)
     {
         if (buffer.Length < StreamProtocol.MaxHeaderLength + capacity)
         {
@@ -43,14 +46,15 @@ public sealed class EncodedFrame
         return buffer.AsSpan(StreamProtocol.MaxHeaderLength);
     }
 
-    // Space for the header just before the JPEG data
+    // Space for the header just before the data
     internal Span<byte> GetHeaderBuffer(int length) => buffer.AsSpan(StreamProtocol.MaxHeaderLength - length, length);
 
-    internal void Commit(long index, int headerLength, int jpegLength)
+    internal void Commit(long index, int headerLength, int dataLength, bool keyFrame)
     {
         Index = index;
         this.headerLength = headerLength;
-        this.jpegLength = jpegLength;
+        this.dataLength = dataLength;
+        IsKeyFrame = keyFrame;
         PublishTimestamp = Stopwatch.GetTimestamp();
     }
 

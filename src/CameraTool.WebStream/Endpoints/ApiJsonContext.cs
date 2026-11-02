@@ -9,5 +9,7 @@ using CameraTool.WebStream.Components;
 [JsonSerializable(typeof(StreamStatus))]
 [JsonSerializable(typeof(DetectionRequest))]
 [JsonSerializable(typeof(MotionRequest))]
+[JsonSerializable(typeof(ObjectRequest))]
+[JsonSerializable(typeof(ObjectLabel[]))]
 [JsonSerializable(typeof(AreaData))]
 public sealed partial class ApiJsonContext : JsonSerializerContext;

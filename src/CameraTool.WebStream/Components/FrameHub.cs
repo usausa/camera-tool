@@ -107,6 +107,8 @@ public sealed class FrameHub
         sentLatency.Add(Stopwatch.GetElapsedTime(publishTimestamp));
     }
 
+    internal void AddSkipped(long skipped) => Interlocked.Add(ref skippedFrames, skipped);
+
     //--------------------------------------------------------------------------------
     // Statistics
     //--------------------------------------------------------------------------------
@@ -182,6 +184,15 @@ public sealed class FrameSubscription : IValueTaskSource<EncodedFrame>, IDisposa
         SentFrames++;
         SkippedFrames += skipped;
         hub.AddSent(skipped, frame.PublishTimestamp);
+    }
+
+    // The frame is not sent (an H.264 frame while the client waits for a key frame)
+    public void Skip(EncodedFrame frame)
+    {
+        var skipped = frame.Index - LastIndex;
+        LastIndex = frame.Index;
+        SkippedFrames += skipped;
+        hub.AddSkipped(skipped);
     }
 
     private void OnCanceled(CancellationToken token) => hub.Cancel(this, token);
