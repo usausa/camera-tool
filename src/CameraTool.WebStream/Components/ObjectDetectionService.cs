@@ -8,7 +8,7 @@ using CameraTool.WebStream.Settings;
 
 using Microsoft.ML.OnnxRuntime;
 
-public readonly record struct ObjectDetectionInfo(long Sequence, int FrameWidth, int FrameHeight, int Count);
+public readonly record struct ObjectDetectionInfo(long Sequence, int Count);
 
 // Detects objects (COCO classes) on a dedicated thread while clients are connected, in the same way as FaceDetectionService.
 // The inference takes about 100 ms, so the input is prepared at most once per interval
@@ -229,7 +229,7 @@ public sealed class ObjectDetectionService : IHostedService, IDisposable
             inferenceTime.Add(Stopwatch.GetElapsedTime(start));
             Interlocked.Increment(ref detectedFrames);
 
-            count = area.Current.FilterObjects(workResults.AsSpan(0, count));
+            count = area.Current.Filter(workResults.AsSpan(0, count));
             Publish(enabled ? count : 0);
             Volatile.Write(ref state, StateIdle);
         }
@@ -281,45 +281,17 @@ public sealed class ObjectDetectionService : IHostedService, IDisposable
 
         var frame = e.Frame;
         var start = Stopwatch.GetTimestamp();
-        if (Prepare(current, frame))
+        if (DetectionInput.TryPrepare(frame, current.Input, current.InputWidth, current.InputHeight, ObjectDetector.Normalization))
         {
             lastPreparedTimestamp = start;
             preprocessTime.Add(Stopwatch.GetElapsedTime(start));
-            pending = new ObjectDetectionInfo(frame.Sequence, frame.Width, frame.Height, 0);
+            pending = new ObjectDetectionInfo(frame.Sequence, 0);
             Volatile.Write(ref state, StateReady);
             signal.Set();
         }
         else
         {
             Volatile.Write(ref state, StateIdle);
-        }
-    }
-
-    private static bool Prepare(ObjectDetector detector, in FrameBuffer frame)
-    {
-        var input = detector.Input;
-        var range = frame.ColorRange == VideoColorRange.Full ? YuvRange.Full : YuvRange.Limited;
-        try
-        {
-            switch (frame.PixelFormat)
-            {
-                case VideoPixelFormat.Bgra8:
-                    TensorConverter.BgraToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.Width, frame.Height, input, detector.InputWidth, detector.InputHeight, ObjectDetector.Normalization);
-                    return true;
-                case VideoPixelFormat.Nv12:
-                    TensorConverter.Nv12ToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.GetPlaneSpan(frame.Plane1), frame.Plane1.Stride, frame.Width, frame.Height, range, input, detector.InputWidth, detector.InputHeight, ObjectDetector.Normalization);
-                    return true;
-                case VideoPixelFormat.Yuy2:
-                    TensorConverter.Yuy2ToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.Width, frame.Height, range, input, detector.InputWidth, detector.InputHeight, ObjectDetector.Normalization);
-                    return true;
-                default:
-                    return false;
-            }
-        }
-        catch (ArgumentException)
-        {
-            // Unexpected buffer layout
-            return false;
         }
     }
 }

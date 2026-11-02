@@ -1,5 +1,6 @@
 namespace CameraTool.Vision;
 
+using System.Globalization;
 using System.Runtime.InteropServices;
 
 // Media Foundation called through the COM vtable (only what the H.264 encoder uses)
@@ -17,6 +18,8 @@ internal static unsafe partial class MediaFoundation
     public const int TransformStreamChange = unchecked((int)0xC00D6D61);
 
     public const int NotAccepting = unchecked((int)0xC00D36B5);
+
+    public const int NoEventsAvailable = unchecked((int)0xC00D3E80);
 
     // MFT_ENUM_FLAG
     public const uint EnumSync = 0x1;
@@ -46,6 +49,8 @@ internal static unsafe partial class MediaFoundation
     public const uint OutputCanProvideSamples = 0x200;
 
     // MediaEventType
+    public const uint EventError = 1;
+
     public const uint EventNeedInput = 601;
 
     public const uint EventHaveOutput = 602;
@@ -106,6 +111,10 @@ internal static unsafe partial class MediaFoundation
     private const int GetEventSlot = 3;
     // IMFMediaEvent
     private const int GetTypeSlot = 33;
+    private const int GetStatusSlot = 35;
+
+    // MF_EVENT_FLAG_NO_WAIT
+    private const uint EventNoWait = 1;
     // ICodecAPI
     private const int SetValueSlot = 9;
     // IMFShutdown
@@ -168,6 +177,16 @@ internal static unsafe partial class MediaFoundation
     public static IntPtr QueryInterface(IntPtr pointer, in Guid iid) =>
         Marshal.QueryInterface(pointer, in iid, out var result) < 0 ? IntPtr.Zero : result;
 
+    // Every failure is an InvalidOperationException with the HRESULT
+    // (Marshal.ThrowExceptionForHR maps some HRESULTs to other exception types, such as OutOfMemoryException)
+    public static void ThrowIfFailed(int hr)
+    {
+        if (hr < 0)
+        {
+            throw new InvalidOperationException(String.Create(CultureInfo.InvariantCulture, $"Media Foundation failed. code=[0x{hr:X8}]")) { HResult = hr };
+        }
+    }
+
     //--------------------------------------------------------------------------------
     // Functions
     //--------------------------------------------------------------------------------
@@ -179,7 +198,7 @@ internal static unsafe partial class MediaFoundation
         var output = new RegisterTypeInfo { MajorType = MediaTypeVideo, Subtype = FormatH264 };
         IntPtr array;
         uint count;
-        Marshal.ThrowExceptionForHR(MFTEnumEx(CategoryVideoEncoder, flags, &input, &output, &array, &count));
+        ThrowIfFailed(MFTEnumEx(CategoryVideoEncoder, flags, &input, &output, &array, &count));
         var result = new List<(IntPtr, string)>((int)count);
         for (var i = 0; i < count; i++)
         {
@@ -194,7 +213,7 @@ internal static unsafe partial class MediaFoundation
     public static IntPtr CreateVideoType(Guid subtype, int width, int height, int frameRate)
     {
         IntPtr type;
-        Marshal.ThrowExceptionForHR(MFCreateMediaType(&type));
+        ThrowIfFailed(MFCreateMediaType(&type));
         SetGuid(type, MajorType, MediaTypeVideo);
         SetGuid(type, Subtype, subtype);
         SetUInt64(type, FrameSize, ((ulong)(uint)width << 32) | (uint)height);
@@ -208,13 +227,13 @@ internal static unsafe partial class MediaFoundation
     public static IntPtr CreateSample(int size, out IntPtr buffer)
     {
         IntPtr sample;
-        Marshal.ThrowExceptionForHR(MFCreateSample(&sample));
+        ThrowIfFailed(MFCreateSample(&sample));
         IntPtr created;
         var hr = MFCreateMemoryBuffer((uint)size, &created);
         if (hr < 0)
         {
             Release(sample);
-            Marshal.ThrowExceptionForHR(hr);
+            ThrowIfFailed(hr);
         }
 
         hr = ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)Vtbl(sample)[AddBufferSlot])(sample, created);
@@ -222,7 +241,7 @@ internal static unsafe partial class MediaFoundation
         if (hr < 0)
         {
             Release(sample);
-            Marshal.ThrowExceptionForHR(hr);
+            ThrowIfFailed(hr);
         }
 
         buffer = created;
@@ -264,13 +283,13 @@ internal static unsafe partial class MediaFoundation
     }
 
     public static void SetUInt32(IntPtr attributes, Guid key, uint value) =>
-        Marshal.ThrowExceptionForHR(((delegate* unmanaged[Stdcall]<IntPtr, Guid*, uint, int>)Vtbl(attributes)[SetUInt32Slot])(attributes, &key, value));
+        ThrowIfFailed(((delegate* unmanaged[Stdcall]<IntPtr, Guid*, uint, int>)Vtbl(attributes)[SetUInt32Slot])(attributes, &key, value));
 
     public static void SetUInt64(IntPtr attributes, Guid key, ulong value) =>
-        Marshal.ThrowExceptionForHR(((delegate* unmanaged[Stdcall]<IntPtr, Guid*, ulong, int>)Vtbl(attributes)[SetUInt64Slot])(attributes, &key, value));
+        ThrowIfFailed(((delegate* unmanaged[Stdcall]<IntPtr, Guid*, ulong, int>)Vtbl(attributes)[SetUInt64Slot])(attributes, &key, value));
 
     public static void SetGuid(IntPtr attributes, Guid key, Guid value) =>
-        Marshal.ThrowExceptionForHR(((delegate* unmanaged[Stdcall]<IntPtr, Guid*, Guid*, int>)Vtbl(attributes)[SetGuidSlot])(attributes, &key, &value));
+        ThrowIfFailed(((delegate* unmanaged[Stdcall]<IntPtr, Guid*, Guid*, int>)Vtbl(attributes)[SetGuidSlot])(attributes, &key, &value));
 
     //--------------------------------------------------------------------------------
     // IMFActivate
@@ -294,7 +313,7 @@ internal static unsafe partial class MediaFoundation
     public static OutputStreamInfo GetOutputStreamInfo(IntPtr transform)
     {
         OutputStreamInfo info;
-        Marshal.ThrowExceptionForHR(((delegate* unmanaged[Stdcall]<IntPtr, uint, OutputStreamInfo*, int>)Vtbl(transform)[GetOutputStreamInfoSlot])(transform, 0, &info));
+        ThrowIfFailed(((delegate* unmanaged[Stdcall]<IntPtr, uint, OutputStreamInfo*, int>)Vtbl(transform)[GetOutputStreamInfoSlot])(transform, 0, &info));
         return info;
     }
 
@@ -382,19 +401,27 @@ internal static unsafe partial class MediaFoundation
     // IMFMediaEventGenerator / ICodecAPI / IMFShutdown
     //--------------------------------------------------------------------------------
 
-    // Blocks until an event, zero when the generator fails (shut down)
-    public static uint GetEvent(IntPtr generator)
+    // The next event and its status, waits for one or returns NoEventsAvailable.
+    // A failure means the generator is shut down.
+    public static int GetEvent(IntPtr generator, bool wait, out uint type, out int status)
     {
         IntPtr mediaEvent;
-        if (((delegate* unmanaged[Stdcall]<IntPtr, uint, IntPtr*, int>)Vtbl(generator)[GetEventSlot])(generator, 0, &mediaEvent) < 0)
+        var hr = ((delegate* unmanaged[Stdcall]<IntPtr, uint, IntPtr*, int>)Vtbl(generator)[GetEventSlot])(generator, wait ? 0 : EventNoWait, &mediaEvent);
+        if (hr < 0)
         {
-            return 0;
+            type = 0;
+            status = hr;
+            return hr;
         }
 
-        uint type;
-        ((delegate* unmanaged[Stdcall]<IntPtr, uint*, int>)Vtbl(mediaEvent)[GetTypeSlot])(mediaEvent, &type);
+        uint eventType;
+        int eventStatus;
+        ((delegate* unmanaged[Stdcall]<IntPtr, uint*, int>)Vtbl(mediaEvent)[GetTypeSlot])(mediaEvent, &eventType);
+        ((delegate* unmanaged[Stdcall]<IntPtr, int*, int>)Vtbl(mediaEvent)[GetStatusSlot])(mediaEvent, &eventStatus);
         Release(mediaEvent);
-        return type;
+        type = eventType;
+        status = eventStatus;
+        return hr;
     }
 
     public static int SetCodecValue(IntPtr codecApi, Guid property, uint value)

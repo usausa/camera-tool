@@ -2,8 +2,6 @@ namespace CameraTool.WebStream.Components;
 
 using System.Diagnostics;
 
-using CameraTool.WebStream.Settings;
-
 // Statistics updated every second
 public sealed class StatusService : BackgroundService
 {
@@ -39,8 +37,6 @@ public sealed class StatusService : BackgroundService
 
     private readonly AreaService area;
 
-    private readonly TimeSpan motionHoldTime;
-
     private StreamStatus current = new();
 
     public StreamStatus Current => Volatile.Read(ref current);
@@ -48,7 +44,6 @@ public sealed class StatusService : BackgroundService
     public StatusService(
         ILogger<StatusService> log,
         TimeProvider timeProvider,
-        DetectSettings detectSettings,
         VideoSource source,
         StreamService stream,
         H264StreamService h264,
@@ -71,7 +66,6 @@ public sealed class StatusService : BackgroundService
         this.gate = gate;
         this.objectDetection = objectDetection;
         this.area = area;
-        motionHoldTime = TimeSpan.FromMilliseconds(detectSettings.MotionHoldTime);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -167,6 +161,7 @@ public sealed class StatusService : BackgroundService
             H264InputTime = LatencyValue.From(h264.TakeInputTime()),
             H264EncodeTime = LatencyValue.From(h264.TakeEncodeTime()),
             H264StreamLatency = LatencyValue.From(h264.TakeStreamLatency()),
+            H264SendStartLatency = LatencyValue.From(h264Hub.TakeSendStartLatency()),
             H264SentLatency = LatencyValue.From(h264Hub.TakeSentLatency()),
             H264Bitrate = (counters.H264EncodedBytes - last.H264EncodedBytes) * 8 / BitsPerKilobit / elapsed,
             H264Buffers = h264.AllocatedFrames,
@@ -178,7 +173,7 @@ public sealed class StatusService : BackgroundService
             Faces = detection.FaceCount,
             MotionEnabled = motion.IsEnabled,
             MotionGate = gate.IsEnabled,
-            Moving = motion.IsEnabled && motion.IsMoving(motionHoldTime),
+            Moving = motion.IsEnabled && motion.IsMoving,
             MotionLevel = motion.Info.Level * 100,
             MotionTime = LatencyValue.From(motion.TakeProcessTime()),
             ObjectEnabled = objectDetection.IsEnabled,
@@ -237,6 +232,8 @@ public sealed class StatusService : BackgroundService
             status.H264EncodeTime.Max,
             status.H264StreamLatency.Average,
             status.H264StreamLatency.Max,
+            status.H264SendStartLatency.Average,
+            status.H264SendStartLatency.Max,
             status.H264SentLatency.Average,
             status.H264SentLatency.Max,
             status.H264Bitrate);

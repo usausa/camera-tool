@@ -78,6 +78,9 @@ public sealed class StreamStatus
     // Arrival -> published
     public LatencyValue H264StreamLatency { get; init; }
 
+    // Published -> send start
+    public LatencyValue H264SendStartLatency { get; init; }
+
     // Published -> sent
     public LatencyValue H264SentLatency { get; init; }
 

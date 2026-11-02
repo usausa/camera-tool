@@ -8,24 +8,14 @@ using CameraTool.FaceViewer.Components;
 using CameraTool.FaceViewer.Helpers;
 using CameraTool.Vision;
 
-// Draws face boxes in the same layout as VideoView.
-// Labels are child visuals that are redrawn only when the text changes and moved by Offset,
-// because formatting text on each update allocates.
+// Draws face boxes in the same layout as VideoView, with the confidence labels of BoxLabels.
 public sealed partial class FaceBoxOverlay : FrameworkElement
 {
     private const double LineThickness = 2;
 
-    private const double LabelFontSize = 12;
-
-    private const double LabelMargin = 2;
-
-    private const int NoLabel = -1;
-
     private static readonly SolidColorBrush BoxBrush = CreateBrush(Color.FromRgb(0x00, 0xE6, 0x76));
 
     private static readonly Pen BoxPen = CreatePen(BoxBrush, LineThickness);
-
-    private static readonly Typeface LabelTypeface = new("Segoe UI");
 
     private readonly FaceBox[] boxes = new FaceBox[FaceDetectionService.MaxFaces];
 
@@ -33,11 +23,11 @@ public sealed partial class FaceBoxOverlay : FrameworkElement
 
     private readonly DrawingVisual boxVisual = new();
 
-    private readonly DrawingVisual[] labelVisuals = new DrawingVisual[FaceDetectionService.MaxFaces];
-
-    private readonly int[] labelPercents = new int[FaceDetectionService.MaxFaces];
-
-    private readonly Dictionary<int, FormattedText> labelTexts = [];
+    // key: percent
+    private readonly BoxLabels labels = new(
+        FaceDetectionService.MaxFaces,
+        static key => String.Create(CultureInfo.InvariantCulture, $"{key}%"),
+        static _ => BoxBrush);
 
     private readonly Action updateRequestedAction;
 
@@ -56,12 +46,7 @@ public sealed partial class FaceBoxOverlay : FrameworkElement
 
         // Create children before setting properties that enumerate them
         visuals = new VisualCollection(this) { boxVisual };
-        for (var i = 0; i < labelVisuals.Length; i++)
-        {
-            labelVisuals[i] = new DrawingVisual();
-            labelPercents[i] = NoLabel;
-            visuals.Add(labelVisuals[i]);
-        }
+        labels.AddTo(visuals);
 
         IsHitTestVisible = false;
         Loaded += OnLoaded;
@@ -84,8 +69,7 @@ public sealed partial class FaceBoxOverlay : FrameworkElement
 
     protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
     {
-        labelTexts.Clear();
-        labelPercents.AsSpan().Fill(NoLabel);
+        labels.Reset();
         base.OnDpiChanged(oldDpi, newDpi);
         Redraw();
     }
@@ -104,57 +88,18 @@ public sealed partial class FaceBoxOverlay : FrameworkElement
         }
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        for (var i = 0; i < labelVisuals.Length; i++)
+        for (var i = 0; i < count; i++)
         {
-            var visual = labelVisuals[i];
-            if (i < count)
-            {
-                var percent = (int)(boxes[i].Confidence * 100);
-                var text = GetLabelText(percent, pixelsPerDip);
-                if (labelPercents[i] != percent)
-                {
-                    using var context = visual.RenderOpen();
-                    context.DrawText(text, default);
-                    labelPercents[i] = percent;
-                }
-
-                var rect = ToRect(area, boxes[i]);
-                visual.Offset = new Vector(rect.Left, Math.Max(area.Top, rect.Top - text.Height - LabelMargin));
-            }
-            else if (labelPercents[i] != NoLabel)
-            {
-                using (visual.RenderOpen())
-                {
-                    // Clear
-                }
-
-                labelPercents[i] = NoLabel;
-            }
+            labels.Show(i, (int)(boxes[i].Confidence * 100), area, ToRect(area, boxes[i]), pixelsPerDip);
         }
+
+        labels.HideFrom(count);
     }
 
     private static Rect ToRect(Rect area, FaceBox box) =>
         new(
             new Point(area.X + (box.Left * area.Width), area.Y + (box.Top * area.Height)),
             new Point(area.X + (box.Right * area.Width), area.Y + (box.Bottom * area.Height)));
-
-    private FormattedText GetLabelText(int percent, double pixelsPerDip)
-    {
-        if (!labelTexts.TryGetValue(percent, out var text))
-        {
-            text = new FormattedText(
-                String.Create(CultureInfo.InvariantCulture, $"{percent}%"),
-                CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight,
-                LabelTypeface,
-                LabelFontSize,
-                BoxBrush,
-                pixelsPerDip);
-            labelTexts[percent] = text;
-        }
-
-        return text;
-    }
 
     private static SolidColorBrush CreateBrush(Color color)
     {

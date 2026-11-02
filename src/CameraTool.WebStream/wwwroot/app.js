@@ -9,6 +9,9 @@ const OBJECT_SECTION_FLAG = 0x4;
 
 const KEY_FRAME_FLAG = 0x8;
 
+// H.264 in full range (otherwise video range)
+const FULL_RANGE_FLAG = 0x10;
+
 const BASE_HEADER_LENGTH = 32;
 
 const FACE_SECTION_LENGTH = 8;
@@ -194,6 +197,7 @@ const serverRows = createRows('server', [
     ['h264InputTime', 'H.264 input'],
     ['h264EncodeTime', 'H.264 encode time'],
     ['h264StreamLatency', 'H.264 arrival → publish'],
+    ['h264SendStartLatency', 'H.264 publish → send start'],
     ['h264SentLatency', 'H.264 publish → sent'],
     ['h264Bitrate', 'H.264 bitrate'],
     ['h264Buffers', 'H.264 buffers'],
@@ -304,17 +308,20 @@ async function updateServerStats() {
     serverRows.h264InputTime.textContent = formatTime(status.h264InputTime, 3);
     serverRows.h264EncodeTime.textContent = formatTime(status.h264EncodeTime);
     serverRows.h264StreamLatency.textContent = formatTime(status.h264StreamLatency);
+    serverRows.h264SendStartLatency.textContent = formatTime(status.h264SendStartLatency);
     serverRows.h264SentLatency.textContent = formatTime(status.h264SentLatency);
     serverRows.h264Bitrate.textContent = `${(status.h264Bitrate / 1000).toFixed(2)} Mbps`;
     serverRows.h264Buffers.textContent = `${status.h264Buffers}`;
-    serverRows.detection.textContent = status.detectionError ?? (status.detectionEnabled ? (status.motionGate ? 'On (on motion)' : 'On') : 'Off');
+    // The gate works only while the motion detection is on
+    const gated = status.motionGate && status.motionEnabled;
+    serverRows.detection.textContent = status.detectionError ?? (status.detectionEnabled ? (gated ? 'On (on motion)' : 'On') : 'Off');
     serverRows.detect.textContent = formatFps(status.detectFps);
     serverRows.preprocessTime.textContent = formatTime(status.preprocessTime, 3);
     serverRows.inferenceTime.textContent = formatTime(status.inferenceTime);
     serverRows.faces.textContent = `${status.faces}`;
     serverRows.motion.textContent = status.motionEnabled ? `${status.moving ? 'Moving' : 'Still'} ${status.motionLevel.toFixed(1)} %` : 'Off';
     serverRows.motionTime.textContent = formatTime(status.motionTime, 3);
-    serverRows.objectDetection.textContent = status.objectError ?? (status.objectEnabled ? (status.motionGate ? 'On (on motion)' : 'On') : 'Off');
+    serverRows.objectDetection.textContent = status.objectError ?? (status.objectEnabled ? (gated ? 'On (on motion)' : 'On') : 'Off');
     serverRows.objectDetect.textContent = formatFps(status.objectFps);
     serverRows.objectPreprocess.textContent = formatTime(status.objectPreprocessTime, 3);
     serverRows.objectInference.textContent = formatTime(status.objectInferenceTime);
@@ -604,6 +611,10 @@ async function saveArea() {
         if (response.ok) {
             return;
         }
+        if (response.status === 500) {
+            // Applied, but not kept after the server restarts
+            setState('The area could not be saved to the file on the server');
+        }
     } catch {
         // Server not reachable
     }
@@ -823,6 +834,7 @@ function receive(data) {
         captureTime: view.getFloat64(16, true),
         encodedTime: view.getFloat64(24, true),
         keyFrame: (flags & KEY_FRAME_FLAG) !== 0,
+        fullRange: (flags & FULL_RANGE_FLAG) !== 0,
         faces,
         motion,
         objects: (flags & OBJECT_SECTION_FLAG) !== 0 ? readObjects(view, offset) : null,
@@ -908,6 +920,9 @@ const h264 = {
     codec: null,
     width: 0,
     height: 0,
+    fullRange: false,
+    // The browser cannot decode the stream (no key frame is requested then)
+    unsupported: false,
     // Frames in the decoder by the chunk timestamp
     frames: new Map(),
     nextTimestamp: 0,
@@ -940,6 +955,17 @@ function resetDecoder() {
     h264.codec = null;
     h264.frames.clear();
     h264.waitingKeyFrame = true;
+    h264.unsupported = false;
+}
+
+// Decoding is given up until the next connection
+function setUnsupported(e) {
+    console.warn('H.264 is not supported.', e);
+    setState(`H.264 is not supported by this browser: ${e.message}`);
+    h264.unsupported = true;
+    h264.decoder = null;
+    h264.codec = null;
+    h264.frames.clear();
 }
 
 // Any text message asks the server for a key frame
@@ -964,6 +990,12 @@ function createDecoder() {
             videoFrame.close();
         },
         error: (e) => {
+            // A configuration the browser cannot decode does not change with a key frame
+            if (e.name === 'NotSupportedError') {
+                setUnsupported(e);
+                return;
+            }
+
             // The decoder is closed, created again with the next key frame
             console.warn('Decode failed.', e);
             setState(`H.264 decode failed: ${e.message}`);
@@ -976,22 +1008,39 @@ function createDecoder() {
 }
 
 function decodeH264(frame) {
+    if (h264.unsupported) {
+        client.dropped++;
+        return;
+    }
+
     const data = new Uint8Array(frame.data, frame.headerLength);
     if (frame.keyFrame) {
         // The key frame has the SPS, the decoder is configured again when the stream changes
         const codec = getCodecString(data);
-        if ((codec !== null) && ((h264.decoder === null) || (codec !== h264.codec) || (frame.width !== h264.width) || (frame.height !== h264.height))) {
+        if ((codec !== null) &&
+            ((h264.decoder === null) || (codec !== h264.codec) || (frame.width !== h264.width) || (frame.height !== h264.height) || (frame.fullRange !== h264.fullRange))) {
             try {
                 h264.decoder ??= createDecoder();
-                // Annex B (no description), the frames are output in the decode order
-                h264.decoder.configure({ codec, codedWidth: frame.width, codedHeight: frame.height, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' });
+                // Annex B (no description), the frames are output in the decode order.
+                // The colors are given because the software encoder writes the range without the colour description,
+                // which a decoder ignores (the YUV is BT.601 as the JPEG, the primaries and the transfer are BT.709 / sRGB).
+                // The browser decides on the hardware decoding ('prefer-hardware' fails where it is not available).
+                h264.decoder.configure({
+                    codec,
+                    codedWidth: frame.width,
+                    codedHeight: frame.height,
+                    optimizeForLatency: true,
+                    colorSpace: { primaries: 'bt709', transfer: 'bt709', matrix: 'bt470bg', fullRange: frame.fullRange }
+                });
                 h264.codec = codec;
                 h264.width = frame.width;
                 h264.height = frame.height;
+                h264.fullRange = frame.fullRange;
             } catch (e) {
-                console.warn('Configure failed.', e);
-                setState(`H.264 configure failed: ${e.message}`);
-                resetDecoder();
+                // An invalid configuration does not change with a key frame either
+                setUnsupported(e);
+                client.dropped++;
+                return;
             }
         }
         if (h264.decoder !== null) {

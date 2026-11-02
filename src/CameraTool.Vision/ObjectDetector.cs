@@ -53,16 +53,7 @@ public sealed class ObjectDetector : IDisposable
         logitThreshold = ToLogit(options.ConfidenceThreshold);
         targets = CreateTargets(options.Classes);
 
-        using var sessionOptions = new SessionOptions();
-        sessionOptions.LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR;
-        sessionOptions.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
-        sessionOptions.ExecutionMode = ExecutionMode.ORT_SEQUENTIAL;
-        sessionOptions.IntraOpNumThreads = options.IntraOpNumThreads;
-        sessionOptions.InterOpNumThreads = options.InterOpNumThreads;
-        sessionOptions.EnableCpuMemArena = true;
-        sessionOptions.EnableMemoryPattern = true;
-
-        session = new InferenceSession(modelPath, sessionOptions);
+        session = OnnxSession.Create(modelPath, options.IntraOpNumThreads, options.InterOpNumThreads);
         try
         {
             if (!session.InputMetadata.TryGetValue(InputName, out var inputMetadata) ||

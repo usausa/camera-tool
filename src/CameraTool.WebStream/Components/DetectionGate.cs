@@ -14,8 +14,6 @@ public sealed class DetectionGate
 
     private readonly TimeSpan idleInterval;
 
-    private readonly TimeSpan motionHoldTime;
-
     private volatile bool enabled;
 
     public bool IsEnabled
@@ -33,7 +31,6 @@ public sealed class DetectionGate
         this.log = log;
         this.motion = motion;
         idleInterval = TimeSpan.FromMilliseconds(settings.IdleInterval);
-        motionHoldTime = TimeSpan.FromMilliseconds(settings.MotionHoldTime);
         enabled = settings.MotionGate;
     }
 
@@ -41,6 +38,6 @@ public sealed class DetectionGate
     public bool IsIdle(long lastPreparedTimestamp) =>
         enabled &&
         motion.IsEnabled &&
-        !motion.IsMoving(motionHoldTime) &&
+        !motion.IsMoving &&
         (Stopwatch.GetElapsedTime(lastPreparedTimestamp) < idleInterval);
 }

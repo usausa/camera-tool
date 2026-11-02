@@ -6,7 +6,7 @@ using CameraTool.Capture;
 using CameraTool.Vision;
 using CameraTool.WebStream.Settings;
 
-public readonly record struct MotionInfo(long Sequence, bool Detected, float Level, int Cells);
+public readonly record struct MotionInfo(long Sequence, float Level, int Cells);
 
 // Detects motion in the detection area on the capture thread while clients are connected.
 // Handles the frame after the stream (the header has the motion of the previous frame) and before the face detection.
@@ -21,6 +21,8 @@ public sealed class MotionService : IHostedService
     private readonly AreaService area;
 
     private readonly MotionDetector detector;
+
+    private readonly TimeSpan holdTime;
 
     private readonly Lock resultSync = new();
 
@@ -71,7 +73,10 @@ public sealed class MotionService : IHostedService
         }
     }
 
-    public MotionService(ILogger<MotionService> log, MotionSettings settings, VideoSource source, StreamHubs hubs, AreaService area)
+    // True while the last motion is within the hold time
+    public bool IsMoving => Stopwatch.GetElapsedTime(Interlocked.Read(ref lastMotionTimestamp)) <= holdTime;
+
+    public MotionService(ILogger<MotionService> log, MotionSettings settings, DetectSettings detectSettings, VideoSource source, StreamHubs hubs, AreaService area)
     {
         this.log = log;
         this.source = source;
@@ -84,6 +89,7 @@ public sealed class MotionService : IHostedService
             MinArea = settings.MinArea,
             BackgroundRate = settings.BackgroundRate
         });
+        holdTime = TimeSpan.FromMilliseconds(detectSettings.MotionHoldTime);
         enabled = settings.Enable;
     }
 
@@ -115,9 +121,6 @@ public sealed class MotionService : IHostedService
             return info;
         }
     }
-
-    // True while the last motion is within the hold time
-    public bool IsMoving(TimeSpan holdTime) => Stopwatch.GetElapsedTime(Interlocked.Read(ref lastMotionTimestamp)) <= holdTime;
 
     public LatencySnapshot TakeProcessTime() => processTime.Take();
 
@@ -181,7 +184,7 @@ public sealed class MotionService : IHostedService
             if (enabled)
             {
                 workMask.CopyTo(mask, 0);
-                info = new MotionInfo(frame.Sequence, result.Detected, result.Level, result.Cells);
+                info = new MotionInfo(frame.Sequence, result.Level, result.Cells);
             }
         }
     }

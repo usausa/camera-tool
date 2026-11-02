@@ -91,7 +91,7 @@ public sealed class DetectionAreaTests
     //--------------------------------------------------------------------------------
 
     [Fact]
-    public void FilterFacesKeepsFacesInArea()
+    public void FilterKeepsFacesInArea()
     {
         // Arrange (the left half)
         var area = DetectionArea.Full.WithCells(16, 0, LastColumn, LastRow, false);
@@ -104,7 +104,7 @@ public sealed class DetectionAreaTests
         };
 
         // Act
-        var count = area.FilterFaces(faces);
+        var count = area.Filter(faces);
 
         // Assert (the center x of the faces: 0.2, 0.7, 0.49, 0.55)
         Assert.Equal(2, count);
@@ -113,7 +113,7 @@ public sealed class DetectionAreaTests
     }
 
     [Fact]
-    public void FilterObjectsKeepsObjectsInArea()
+    public void FilterKeepsObjectsInArea()
     {
         // Arrange (the top half)
         var area = DetectionArea.Full.WithCells(0, 12, LastColumn, LastRow, false);
@@ -125,7 +125,7 @@ public sealed class DetectionAreaTests
         };
 
         // Act
-        var count = area.FilterObjects(objects);
+        var count = area.Filter(objects);
 
         // Assert (the center y of the objects: 0.35, 0.7, 0.2)
         Assert.Equal(2, count);
@@ -144,7 +144,7 @@ public sealed class DetectionAreaTests
         };
 
         // Act
-        var count = DetectionArea.Full.FilterFaces(faces);
+        var count = DetectionArea.Full.Filter(faces);
 
         // Assert
         Assert.Equal(2, count);

@@ -2,8 +2,9 @@ namespace CameraTool.Vision;
 
 using System.Globalization;
 
-// Annex B access units of H.264
-public static class H264Bitstream
+// Annex B access units of H.264, used by the tests to check the encoder output
+// (the viewer reads the codec string from the SPS by itself)
+internal static class H264Bitstream
 {
     private const int IdrSlice = 5;
 

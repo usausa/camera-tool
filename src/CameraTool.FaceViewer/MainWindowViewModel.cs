@@ -35,8 +35,6 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
 
     private readonly ObjectBox[] objectBoxes = new ObjectBox[ObjectDetectionService.MaxObjects];
 
-    private readonly TimeSpan motionHoldTime;
-
     private readonly Dispatcher dispatcher;
 
     private readonly DispatcherTimer statisticsTimer;
@@ -202,6 +200,9 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     public partial string? ObjectError { get; set; }
 
     [ObservableProperty]
+    public partial string? AreaError { get; set; }
+
+    [ObservableProperty]
     public partial double ObjectFps { get; set; }
 
     [ObservableProperty]
@@ -238,7 +239,6 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         ILogger<MainWindowViewModel> log,
         TimeProvider timeProvider,
         DisplaySettings displaySettings,
-        DetectSettings detectSettings,
         VideoSource videoSource,
         FaceDetectionService faceDetection,
         MotionService motion,
@@ -249,7 +249,6 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         this.log = log;
         this.timeProvider = timeProvider;
         this.videoSource = videoSource;
-        motionHoldTime = TimeSpan.FromMilliseconds(detectSettings.MotionHoldTime);
         FaceDetection = faceDetection;
         Motion = motion;
         Area = area;
@@ -313,6 +312,7 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     {
         Area.Update(DetectionArea.Full);
         Area.Save();
+        AreaError = Area.ErrorMessage;
     }
 
     //--------------------------------------------------------------------------------
@@ -423,7 +423,7 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         FaceCount = FaceDetection.FaceCount;
         DetectionError = FaceDetection.ErrorMessage;
 
-        MotionStatus = !Motion.IsEnabled ? MotionOff : Motion.IsMoving(motionHoldTime) ? MotionMoving : MotionStill;
+        MotionStatus = !Motion.IsEnabled ? MotionOff : Motion.IsMoving ? MotionMoving : MotionStill;
         MotionLevel = Motion.Info.Level * 100;
         var motionTime = Motion.TakeProcessTime();
         MotionTime = motionTime.Average.TotalMilliseconds;
@@ -439,6 +439,7 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         ObjectInferenceTimeMax = objectInference.Max.TotalMilliseconds;
         ObjectStatus = FormatObjects();
         ObjectError = ObjectDetection.ErrorMessage;
+        AreaError = Area.ErrorMessage;
 
         var processorTime = GetProcessorTime();
         CpuUsage = (processorTime - lastProcessorTime).TotalSeconds / elapsed / Environment.ProcessorCount * 100;

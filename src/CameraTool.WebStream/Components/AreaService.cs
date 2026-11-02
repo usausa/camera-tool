@@ -53,7 +53,8 @@ public sealed class AreaService
 
     private volatile DetectionArea current;
 
-    private int version;
+    // Starts at a value that differs between the server runs, so that a viewer also gets the area again after a restart
+    private int version = Environment.TickCount;
 
     public DetectionArea Current => current;
 
@@ -76,7 +77,8 @@ public sealed class AreaService
 
     // Written to a temporary file and replaced, so the file is not broken when the server stops while writing.
     // Serialized because the viewers can update the area at the same time.
-    public void Save()
+    // False when the file cannot be written (the area is used until the server stops).
+    public bool Save()
     {
         lock (saveSync)
         {
@@ -92,10 +94,12 @@ public sealed class AreaService
                 File.WriteAllBytes(temporary, JsonSerializer.SerializeToUtf8Bytes(AreaData.From(area), AreaJsonContext.Default.AreaData));
                 File.Move(temporary, path, true);
                 log.InfoAreaSaved(path, area.CellCount);
+                return true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 log.ErrorAreaSaveFailed(ex, path);
+                return false;
             }
         }
     }

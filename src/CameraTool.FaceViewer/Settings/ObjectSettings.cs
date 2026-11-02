@@ -25,18 +25,8 @@ public sealed class ObjectSettings : IValidatableObject
     // COCO class names separated by commas (empty: all classes)
     public string Classes { get; set; } = "person,bird,cat,dog,bicycle,car,motorcycle,bus,truck";
 
-    public IReadOnlyList<int> GetClassIds() => SplitClasses().Select(ObjectLabels.IndexOf).ToArray();
+    public IReadOnlyList<int> GetClassIds() => ObjectLabels.ParseClasses(Classes);
 
-    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
-    {
-        foreach (var name in SplitClasses())
-        {
-            if (ObjectLabels.IndexOf(name) < 0)
-            {
-                yield return new ValidationResult($"Unknown class. name=[{name}]", [nameof(Classes)]);
-            }
-        }
-    }
-
-    private string[] SplitClasses() => Classes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
+        ObjectLabels.FindUnknownClasses(Classes).Select(static x => new ValidationResult($"Unknown class. name=[{x}]", [nameof(Classes)]));
 }

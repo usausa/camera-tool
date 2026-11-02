@@ -11,8 +11,9 @@ using CameraTool.WebStream.Settings;
 // Encodes the frames to H.264 while WebSocket (H.264) clients are connected.
 // The capture thread passes the frame to the encoder, and the output callback (encoder thread) publishes the access unit
 // with the latest detection results (faces, motion and objects).
-// The encoder is created in the background when a client connects (again when the frame size changes),
+// The encoder is created in the background when a client connects (again when the frame format changes),
 // and released when no client has been connected for the idle time.
+// An encoder that fails (to be created, or later) is released and tried again after the retry interval.
 public sealed class H264StreamService : IHostedService, IDisposable
 {
     private const int MinimumCapacity = 16 * 1024;
@@ -26,6 +27,12 @@ public sealed class H264StreamService : IHostedService, IDisposable
 
     private static readonly TimeSpan IdleTime = TimeSpan.FromSeconds(10);
 
+    // Also checked while no frame arrives (the camera stopped)
+    private static readonly TimeSpan IdleCheckInterval = TimeSpan.FromSeconds(1);
+
+    // The device may come back or free its sessions
+    private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(10);
+
     // A slow client that skips frames must not make every frame a key frame
     private static readonly TimeSpan KeyFrameRequestInterval = TimeSpan.FromMilliseconds(500);
 
@@ -37,11 +44,8 @@ public sealed class H264StreamService : IHostedService, IDisposable
 
     private readonly FrameHub hub;
 
-    private readonly FaceDetectionService detection;
-
-    private readonly MotionService motion;
-
-    private readonly ObjectDetectionService objectDetection;
+    // Encoder thread only (one encoder runs at a time)
+    private readonly FrameHeaderWriter headerWriter;
 
     // Range of the frame (written to the stream), capture thread only
     private readonly Nv12Planes planes = new(false);
@@ -54,13 +58,6 @@ public sealed class H264StreamService : IHostedService, IDisposable
     private readonly Lock pendingSync = new();
 
     private readonly PendingFrame[] pendingFrames = new PendingFrame[PendingCount];
-
-    // Detection results attached to the frame (encoder thread only)
-    private readonly FaceBox[] faces = new FaceBox[FaceDetectionService.MaxFaces];
-
-    private readonly byte[] motionMask = new byte[MotionDetector.MaskLength];
-
-    private readonly ObjectBox[] objects = new ObjectBox[ObjectDetectionService.MaxObjects];
 
     private readonly LatencyCounter inputTime = new();
 
@@ -76,14 +73,19 @@ public sealed class H264StreamService : IHostedService, IDisposable
     // Creation or release of the encoder
     private Task? replaceTask;
 
-    // Format the encoder could not be created for (not retried)
+    // Format the encoder failed with, tried again after the retry interval
     private EncoderFormat failedFormat;
+
+    // Stopwatch timestamp
+    private long failedTimestamp;
 
     private bool stopped;
 
     private long releasedDroppedFrames;
 
-    // Stopwatch timestamp (capture thread only)
+    private Timer? idleTimer;
+
+    // Stopwatch timestamp
     private long lastClientTimestamp;
 
     private int pendingIndex;
@@ -132,14 +134,13 @@ public sealed class H264StreamService : IHostedService, IDisposable
         this.settings = settings;
         this.source = source;
         hub = hubs.H264;
-        this.detection = detection;
-        this.motion = motion;
-        this.objectDetection = objectDetection;
+        headerWriter = new FrameHeaderWriter(detection, motion, objectDetection);
     }
 
     public void Dispose()
     {
         // Released by StopAsync unless the host did not stop
+        idleTimer?.Dispose();
         TakeEncoder(out _)?.Dispose();
     }
 
@@ -152,6 +153,7 @@ public sealed class H264StreamService : IHostedService, IDisposable
         if (settings.Enable)
         {
             source.FrameCaptured += OnFrameCaptured;
+            idleTimer = new Timer(OnIdleTimer, null, IdleCheckInterval, IdleCheckInterval);
         }
 
         return Task.CompletedTask;
@@ -160,6 +162,10 @@ public sealed class H264StreamService : IHostedService, IDisposable
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         source.FrameCaptured -= OnFrameCaptured;
+        if (idleTimer is not null)
+        {
+            await idleTimer.DisposeAsync();
+        }
 
         var current = TakeEncoder(out var task);
         if (task is not null)
@@ -258,7 +264,7 @@ public sealed class H264StreamService : IHostedService, IDisposable
             Width = width,
             Height = height,
             FrameRate = frameRate,
-            Bitrate = GetBitrate(width, height) * BitsPerKilobit,
+            Bitrate = settings.ResolveBitrate(width, height) * BitsPerKilobit,
             KeyFrameInterval = settings.KeyFrameInterval * frameRate,
             PreferHardware = settings.PreferHardware,
             FullRange = format.FullRange
@@ -267,7 +273,7 @@ public sealed class H264StreamService : IHostedService, IDisposable
         H264Encoder? created = null;
         try
         {
-            created = new H264Encoder(options, (data, keyFrame, timestamp) => OnEncoded(data, keyFrame, timestamp, width, height));
+            created = new H264Encoder(options, (data, keyFrame, timestamp) => OnEncoded(data, keyFrame, timestamp, format));
             log.InfoH264EncoderCreated(created.Name, created.IsHardware, width, height, format.FullRange, frameRate, options.Bitrate / BitsPerKilobit, options.KeyFrameInterval, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
             lock (encoderSync)
             {
@@ -277,6 +283,7 @@ public sealed class H264StreamService : IHostedService, IDisposable
                     EncoderName = created.Name;
                     IsHardware = created.IsHardware;
                     ErrorMessage = null;
+                    failedFormat = default;
                     created = null;
                 }
             }
@@ -286,8 +293,7 @@ public sealed class H264StreamService : IHostedService, IDisposable
             log.ErrorH264EncoderCreateFailed(ex, width, height);
             lock (encoderSync)
             {
-                failedFormat = format;
-                ErrorMessage = ex.Message;
+                SetFailed(format, ex.Message);
             }
         }
         finally
@@ -297,36 +303,48 @@ public sealed class H264StreamService : IHostedService, IDisposable
         }
     }
 
-    // kbps, about the same quality as the JPEG of quality 80 when it is not set
-    private int GetBitrate(int width, int height)
+    // In the lock: no encoder for the format until the retry interval has passed
+    private void SetFailed(EncoderFormat format, string message)
     {
-        if (settings.Bitrate > 0)
+        failedFormat = format;
+        failedTimestamp = Stopwatch.GetTimestamp();
+        ErrorMessage = message;
+    }
+
+    // Timer thread: releases the encoder when no client has been connected for the idle time
+    private void OnIdleTimer(object? state)
+    {
+        var now = Stopwatch.GetTimestamp();
+        if (hub.HasClients)
         {
-            return settings.Bitrate;
+            Interlocked.Exchange(ref lastClientTimestamp, now);
+            return;
         }
 
-        var pixels = width * height;
-        if (pixels <= 640 * 480)
+        lock (encoderSync)
         {
-            return 4000;
+            if (!stopped && (encoder is not null) && replaceTask is not { IsCompleted: false } &&
+                (Stopwatch.GetElapsedTime(Interlocked.Read(ref lastClientTimestamp), now) > IdleTime))
+            {
+                Replace(default);
+            }
         }
-
-        return pixels <= 1280 * 720 ? 8000 : 16000;
     }
 
     //--------------------------------------------------------------------------------
     // Capture thread
     //--------------------------------------------------------------------------------
 
+    // The idle release is done by the timer
     private void OnFrameCaptured(object? sender, FrameCapturedEventArgs e)
     {
-        var frame = e.Frame;
-        var active = hub.HasClients;
-        if (active)
+        if (!hub.HasClients)
         {
-            lastClientTimestamp = Stopwatch.GetTimestamp();
+            return;
         }
 
+        var frame = e.Frame;
+        Interlocked.Exchange(ref lastClientTimestamp, Stopwatch.GetTimestamp());
         lock (encoderSync)
         {
             // Not encoded while the encoder is created or released
@@ -335,21 +353,11 @@ public sealed class H264StreamService : IHostedService, IDisposable
                 return;
             }
 
-            if (!active)
-            {
-                if ((encoder is not null) && (Stopwatch.GetElapsedTime(lastClientTimestamp) > IdleTime))
-                {
-                    Replace(default);
-                }
-
-                return;
-            }
-
             // YUV without range information is treated as video range
             var format = new EncoderFormat(frame.Width, frame.Height, frame.ColorRange == VideoColorRange.Full);
             if ((encoder is null) || (encoderFormat != format))
             {
-                if ((encoder is not null) || (failedFormat != format))
+                if ((encoder is not null) || (failedFormat != format) || (Stopwatch.GetElapsedTime(failedTimestamp) > RetryInterval))
                 {
                     Replace(format);
                 }
@@ -361,30 +369,40 @@ public sealed class H264StreamService : IHostedService, IDisposable
         }
     }
 
+    // In the lock
     private void Encode(H264Encoder current, in FrameBuffer frame)
     {
         var start = Stopwatch.GetTimestamp();
-        if (!planes.TryGet(frame, out var y, out var yStride, out var uv, out var uvStride))
-        {
-            return;
-        }
-
-        // The capture time (100 ns units) is returned with the output and identifies the frame
-        var timestamp = frame.CaptureTime.Ticks;
-        lock (pendingSync)
-        {
-            pendingFrames[pendingIndex] = new PendingFrame(timestamp, frame.Sequence, frame.ArrivalTime, start);
-            pendingIndex = (pendingIndex + 1) % PendingCount;
-        }
-
         try
         {
+            if (!planes.TryGet(frame, out var y, out var yStride, out var uv, out var uvStride))
+            {
+                return;
+            }
+
+            // The capture time (100 ns units) is returned with the output and identifies the frame
+            var timestamp = frame.CaptureTime.Ticks;
+            lock (pendingSync)
+            {
+                pendingFrames[pendingIndex] = new PendingFrame(timestamp, frame.Sequence, frame.ArrivalTime, start);
+                pendingIndex = (pendingIndex + 1) % PendingCount;
+            }
+
             current.Encode(y, yStride, uv, uvStride, timestamp);
         }
         catch (ArgumentException ex)
         {
             // Unexpected buffer layout
             log.ErrorEncodeFailed(ex);
+            return;
+        }
+
+        if (current.IsFaulted)
+        {
+            // Released, and created again after the retry interval
+            log.ErrorH264EncoderFailed(current.Name, current.FaultCode);
+            SetFailed(encoderFormat, String.Create(CultureInfo.InvariantCulture, $"H.264 encoder failed. code=[0x{current.FaultCode:X8}]"));
+            Replace(default);
             return;
         }
 
@@ -395,7 +413,7 @@ public sealed class H264StreamService : IHostedService, IDisposable
     // Encoder thread
     //--------------------------------------------------------------------------------
 
-    private void OnEncoded(ReadOnlySpan<byte> data, bool keyFrame, long timestamp, int width, int height)
+    private void OnEncoded(ReadOnlySpan<byte> data, bool keyFrame, long timestamp, EncoderFormat format)
     {
         var found = TryGetPending(timestamp, out var pending);
         var encoded = pool.Rent();
@@ -404,32 +422,8 @@ public sealed class H264StreamService : IHostedService, IDisposable
             // The pooled buffers grow to the largest size (key frames)
             data.CopyTo(encoded.GetDataBuffer((int)BitOperations.RoundUpToPowerOf2((uint)Math.Max(data.Length, MinimumCapacity))));
 
-            // Latest detection results
-            FaceDetectionInfo? detected = detection.IsEnabled && detection.IsAvailable ? detection.CopyResults(faces) : null;
-            MotionInfo? moved = motion.IsEnabled ? motion.CopyResults(motionMask) : null;
-            ObjectDetectionInfo? detectedObjects = objectDetection.IsEnabled && objectDetection.IsAvailable ? objectDetection.CopyResults(objects) : null;
-
-            // Unix time of the capture, calculated from the capture clock
-            var now = CaptureClock.Now;
-            var unixNow = (DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds;
-            var header = new FrameHeader
-            {
-                Width = width,
-                Height = height,
-                Sequence = pending.Sequence,
-                CaptureTime = unixNow - (now - TimeSpan.FromTicks(timestamp)).TotalMilliseconds,
-                EncodedTime = unixNow,
-                KeyFrame = keyFrame,
-                Detection = detected,
-                Faces = faces,
-                Motion = moved,
-                MotionMask = motionMask,
-                ObjectDetection = detectedObjects,
-                Objects = objects
-            };
-            var headerLength = StreamProtocol.GetHeaderLength(header);
-            StreamProtocol.WriteHeader(encoded.GetHeaderBuffer(headerLength), header);
-            encoded.Commit(Interlocked.Increment(ref encodedFrames), headerLength, data.Length, keyFrame);
+            var info = new FrameHeaderInfo(format.Width, format.Height, pending.Sequence, TimeSpan.FromTicks(timestamp), keyFrame, format.FullRange);
+            var now = headerWriter.Write(encoded, Interlocked.Increment(ref encodedFrames), info, data.Length);
             hub.Publish(encoded);
             encoded = null;
 

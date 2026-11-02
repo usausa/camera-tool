@@ -199,6 +199,8 @@
                            Text="{Binding DetectionError}" />
                 <TextBlock Style="{StaticResource ErrorTextBlock}"
                            Text="{Binding ObjectError}" />
+                <TextBlock Style="{StaticResource ErrorTextBlock}"
+                           Text="{Binding AreaError}" />
 
                 <!-- Statistics -->
                 <Grid>

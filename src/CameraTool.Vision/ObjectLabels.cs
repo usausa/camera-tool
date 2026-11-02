@@ -39,6 +39,12 @@ public static class ObjectLabels
         return -1;
     }
 
+    // Class names separated by commas, case insensitive (-1 for an unknown name)
+    public static int[] ParseClasses(string text) => SplitClasses(text).Select(IndexOf).ToArray();
+
+    // Names in the class names that are not COCO classes
+    public static IEnumerable<string> FindUnknownClasses(string text) => SplitClasses(text).Where(static x => IndexOf(x) < 0);
+
     public static ObjectGroup GetGroup(int classId) =>
         classId switch
         {
@@ -47,4 +53,6 @@ public static class ObjectLabels
             >= 14 and <= 23 => ObjectGroup.Animal,
             _ => ObjectGroup.Other
         };
+
+    private static string[] SplitClasses(string text) => text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }

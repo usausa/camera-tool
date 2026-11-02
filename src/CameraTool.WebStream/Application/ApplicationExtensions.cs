@@ -65,15 +65,16 @@ public static class ApplicationExtensions
         builder.Services.AddOptions<ObjectSettings>().BindConfiguration("Object").ValidateDataAnnotations().ValidateOnStart();
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<ObjectSettings>>().Value);
 
-        // Components (the frame is handled in the order of the JPEG stream, the H.264 stream, the motion, the face and the object detection)
+        // Components (the frame is handled in the order of the H.264 stream, the JPEG stream, the motion, the face and the object detection.
+        // The H.264 stream only passes the frame to its encoder thread, so it goes first and does not wait for the JPEG encode)
         builder.Services.AddSingleton<VideoSource>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<VideoSource>());
         builder.Services.AddSingleton<AreaService>();
         builder.Services.AddSingleton<StreamHubs>();
-        builder.Services.AddSingleton<StreamService>();
-        builder.Services.AddHostedService(static p => p.GetRequiredService<StreamService>());
         builder.Services.AddSingleton<H264StreamService>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<H264StreamService>());
+        builder.Services.AddSingleton<StreamService>();
+        builder.Services.AddHostedService(static p => p.GetRequiredService<StreamService>());
         builder.Services.AddSingleton<MotionService>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<MotionService>());
         builder.Services.AddSingleton<DetectionGate>();

@@ -9,6 +9,7 @@
   </Folder>
   <Folder Name="/Test/">
     <Project Path="tests/CameraTool.Vision.Tests/CameraTool.Vision.Tests.csproj" />
+    <Project Path="tests/CameraTool.WebStream.Tests/CameraTool.WebStream.Tests.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />

@@ -28,6 +28,7 @@ Windows のカメラ映像を、低遅延・低アロケーションで表示・
 | `src/CameraTool.FaceViewer` | WPF アプリ |
 | `src/CameraTool.WebStream` | 配信サーバー |
 | `tests/CameraTool.Vision.Tests` | Vision の単体テスト |
+| `tests/CameraTool.WebStream.Tests` | WebStream の単体テスト |
 
 ## 📚 ドキュメント
 

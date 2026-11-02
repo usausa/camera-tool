@@ -78,6 +78,9 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Information, Message = "H.264 encoder released. name=[{name}]")]
     public static partial void InfoH264EncoderReleased(this ILogger logger, string name);
 
+    [LoggerMessage(Level = LogLevel.Error, Message = "H.264 encoder failed. name=[{name}], code=[0x{code:X8}]")]
+    public static partial void ErrorH264EncoderFailed(this ILogger logger, string name, int code);
+
     // Detection
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Face detector loaded. model=[{model}], input=[{width}x{height}], elapsed=[{elapsed:F1}ms]")]
@@ -125,7 +128,7 @@ internal static partial class Log
 
     // Statistics
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "H264: clients=[{clients}], encode=[{encodeFps:F1}], send=[{sendFps:F1}], skip=[{skipFps:F1}], drop=[{dropFps:F1}], key=[{keyFrameFps:F1}], input=[{inputTime:F3}/{inputTimeMax:F3}], encodeTime=[{encodeTime:F2}/{encodeTimeMax:F2}], streamLatency=[{streamLatency:F2}/{streamLatencyMax:F2}], sent=[{sent:F2}/{sentMax:F2}], bitrate=[{bitrate:F0}]")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "H264: clients=[{clients}], encode=[{encodeFps:F1}], send=[{sendFps:F1}], skip=[{skipFps:F1}], drop=[{dropFps:F1}], key=[{keyFrameFps:F1}], input=[{inputTime:F3}/{inputTimeMax:F3}], encodeTime=[{encodeTime:F2}/{encodeTimeMax:F2}], streamLatency=[{streamLatency:F2}/{streamLatencyMax:F2}], sendStart=[{sendStart:F2}/{sendStartMax:F2}], sent=[{sent:F2}/{sentMax:F2}], bitrate=[{bitrate:F0}]")]
     public static partial void DebugH264Statistics(
         this ILogger logger,
         int clients,
@@ -140,6 +143,8 @@ internal static partial class Log
         double encodeTimeMax,
         double streamLatency,
         double streamLatencyMax,
+        double sendStart,
+        double sendStartMax,
         double sent,
         double sentMax,
         double bitrate);

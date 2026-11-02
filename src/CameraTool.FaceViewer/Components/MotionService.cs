@@ -6,7 +6,7 @@ using CameraTool.Capture;
 using CameraTool.FaceViewer.Settings;
 using CameraTool.Vision;
 
-public readonly record struct MotionInfo(long Sequence, int FrameWidth, int FrameHeight, bool Detected, float Level, int Cells);
+public readonly record struct MotionInfo(int FrameWidth, int FrameHeight, float Level);
 
 // Detects motion in the detection area on the capture thread.
 // Subscribes to the frames before FaceDetectionService, so the motion of the frame is known when it decides to detect.
@@ -17,6 +17,8 @@ public sealed class MotionService : IDisposable
     private readonly AreaService area;
 
     private readonly MotionDetector detector;
+
+    private readonly TimeSpan holdTime;
 
     private readonly Lock resultSync = new();
 
@@ -68,7 +70,10 @@ public sealed class MotionService : IDisposable
         }
     }
 
-    public MotionService(MotionSettings settings, VideoSource videoSource, AreaService area)
+    // True while the last motion is within the hold time
+    public bool IsMoving => Stopwatch.GetElapsedTime(Interlocked.Read(ref lastMotionTimestamp)) <= holdTime;
+
+    public MotionService(MotionSettings settings, DetectSettings detectSettings, VideoSource videoSource, AreaService area)
     {
         this.videoSource = videoSource;
         this.area = area;
@@ -79,6 +84,7 @@ public sealed class MotionService : IDisposable
             MinArea = settings.MinArea,
             BackgroundRate = settings.BackgroundRate
         });
+        holdTime = TimeSpan.FromMilliseconds(detectSettings.MotionHoldTime);
         enabled = settings.Enable;
 
         videoSource.FrameCaptured += OnFrameCaptured;
@@ -103,9 +109,6 @@ public sealed class MotionService : IDisposable
             return info;
         }
     }
-
-    // True while the last motion is within the hold time
-    public bool IsMoving(TimeSpan holdTime) => Stopwatch.GetElapsedTime(Interlocked.Read(ref lastMotionTimestamp)) <= holdTime;
 
     public LatencySnapshot TakeProcessTime() => processTime.Take();
 
@@ -173,7 +176,7 @@ public sealed class MotionService : IDisposable
 
             changed = (frame.Width != info.FrameWidth) || (frame.Height != info.FrameHeight) || !workMask.AsSpan().SequenceEqual(mask);
             workMask.CopyTo(mask, 0);
-            info = new MotionInfo(frame.Sequence, frame.Width, frame.Height, result.Detected, result.Level, result.Cells);
+            info = new MotionInfo(frame.Width, frame.Height, result.Level);
         }
 
         // Posting to the dispatcher allocates, so the overlay is not notified while the cells stay the same

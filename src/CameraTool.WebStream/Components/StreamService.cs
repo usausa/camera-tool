@@ -18,20 +18,10 @@ public sealed class StreamService : IHostedService, IDisposable
 
     private readonly FrameHub hub;
 
-    private readonly FaceDetectionService detection;
-
-    private readonly MotionService motion;
-
-    private readonly ObjectDetectionService objectDetection;
-
     private readonly JpegEncoder encoder;
 
-    // Detection results attached to the frame (capture thread only)
-    private readonly FaceBox[] faces = new FaceBox[FaceDetectionService.MaxFaces];
-
-    private readonly byte[] motionMask = new byte[MotionDetector.MaskLength];
-
-    private readonly ObjectBox[] objects = new ObjectBox[ObjectDetectionService.MaxObjects];
+    // Capture thread only
+    private readonly FrameHeaderWriter headerWriter;
 
     // Full range (JFIF), capture thread only
     private readonly Nv12Planes planes = new(true);
@@ -59,10 +49,8 @@ public sealed class StreamService : IHostedService, IDisposable
         this.log = log;
         this.source = source;
         hub = hubs.Jpeg;
-        this.detection = detection;
-        this.motion = motion;
-        this.objectDetection = objectDetection;
         encoder = new JpegEncoder(settings.Quality);
+        headerWriter = new FrameHeaderWriter(detection, motion, objectDetection);
     }
 
     public void Dispose()
@@ -146,31 +134,7 @@ public sealed class StreamService : IHostedService, IDisposable
             log.DebugEncodeBufferExpanded(capacity);
         }
 
-        // Latest detection results, detected in a previous frame
-        FaceDetectionInfo? detected = detection.IsEnabled && detection.IsAvailable ? detection.CopyResults(faces) : null;
-        MotionInfo? moved = motion.IsEnabled ? motion.CopyResults(motionMask) : null;
-        ObjectDetectionInfo? found = objectDetection.IsEnabled && objectDetection.IsAvailable ? objectDetection.CopyResults(objects) : null;
-
-        // Unix time of the capture, calculated from the capture clock
-        var now = CaptureClock.Now;
-        var unixNow = (DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds;
-        var header = new FrameHeader
-        {
-            Width = width,
-            Height = height,
-            Sequence = frame.Sequence,
-            CaptureTime = unixNow - (now - frame.CaptureTime).TotalMilliseconds,
-            EncodedTime = unixNow,
-            Detection = detected,
-            Faces = faces,
-            Motion = moved,
-            MotionMask = motionMask,
-            ObjectDetection = found,
-            Objects = objects
-        };
-        var headerLength = StreamProtocol.GetHeaderLength(header);
-        StreamProtocol.WriteHeader(encoded.GetHeaderBuffer(headerLength), header);
-        encoded.Commit(Interlocked.Increment(ref encodedFrames), headerLength, written, false);
+        var now = headerWriter.Write(encoded, Interlocked.Increment(ref encodedFrames), new FrameHeaderInfo(width, height, frame.Sequence, frame.CaptureTime, false, false), written);
 
         Interlocked.Add(ref encodedBytes, written);
         convertTime.Add(Stopwatch.GetElapsedTime(start, converted));

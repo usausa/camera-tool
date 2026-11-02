@@ -50,17 +50,7 @@ public sealed class FaceDetector : IDisposable
         confidenceThreshold = options.ConfidenceThreshold;
         iouThreshold = options.IouThreshold;
 
-        using var sessionOptions = new SessionOptions();
-        // The model has initializers in graph inputs, suppress the warnings
-        sessionOptions.LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR;
-        sessionOptions.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
-        sessionOptions.ExecutionMode = ExecutionMode.ORT_SEQUENTIAL;
-        sessionOptions.IntraOpNumThreads = options.IntraOpNumThreads;
-        sessionOptions.InterOpNumThreads = options.InterOpNumThreads;
-        sessionOptions.EnableCpuMemArena = true;
-        sessionOptions.EnableMemoryPattern = true;
-
-        session = new InferenceSession(modelPath, sessionOptions);
+        session = OnnxSession.Create(modelPath, options.IntraOpNumThreads, options.InterOpNumThreads);
         try
         {
             var inputName = session.InputNames[0];

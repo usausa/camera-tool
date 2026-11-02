@@ -15,4 +15,21 @@ public sealed class H264Settings
 
     // False: the software encoder only
     public bool PreferHardware { get; set; } = true;
+
+    // kbps for the frame size: Bitrate, or about the same quality as the JPEG of quality 80 when it is not set
+    public int ResolveBitrate(int width, int height)
+    {
+        if (Bitrate > 0)
+        {
+            return Bitrate;
+        }
+
+        var pixels = width * height;
+        if (pixels <= 640 * 480)
+        {
+            return 4000;
+        }
+
+        return pixels <= 1280 * 720 ? 8000 : 16000;
+    }
 }

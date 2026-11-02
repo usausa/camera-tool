@@ -118,11 +118,10 @@ public static class StreamEndpoints
         }
     }
 
-    // An H.264 frame depends on the previous frames, so a new client starts from a key frame,
-    // and a client that skipped a frame waits for the next key frame (requested from the encoder)
+    // H.264 frames wait for a key frame (requested from the encoder) at the start and after a skipped frame
     private static async Task SendAsync(WebSocket socket, FrameSubscription subscription, H264StreamService? h264, CancellationToken cancellationToken)
     {
-        var waitingKeyFrame = h264 is not null;
+        var keyFrameGate = h264 is not null ? new KeyFrameGate() : null;
         h264?.RequestKeyFrame();
         try
         {
@@ -131,21 +130,11 @@ public static class StreamEndpoints
                 var frame = await subscription.WaitAsync();
                 try
                 {
-                    if (h264 is not null)
+                    if ((keyFrameGate is not null) && !keyFrameGate.CanSend(frame.Index, frame.IsKeyFrame, subscription.LastIndex))
                     {
-                        if (frame.Index != subscription.LastIndex + 1)
-                        {
-                            waitingKeyFrame = true;
-                        }
-
-                        if (waitingKeyFrame && !frame.IsKeyFrame)
-                        {
-                            subscription.Skip(frame);
-                            h264.RequestKeyFrame();
-                            continue;
-                        }
-
-                        waitingKeyFrame = false;
+                        subscription.Skip(frame);
+                        h264?.RequestKeyFrame();
+                        continue;
                     }
 
                     await socket.SendAsync(frame.Message, WebSocketMessageType.Binary, true, cancellationToken);

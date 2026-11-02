@@ -16,6 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="CameraTool.WebStream.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="System.ComponentModel.DataAnnotations" />
     <Using Include="System.Globalization" />
     <Using Include="System.Runtime" />

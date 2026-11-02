@@ -64,6 +64,12 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
 
     private FaceDetectionInfo pending;
 
+    // Generation of the results when the input was prepared
+    private int pendingGeneration;
+
+    // Incremented when the results are cleared, results of an input prepared before are not published
+    private int generation;
+
     private FaceDetectionInfo info;
 
     private long detectedFrames;
@@ -165,12 +171,19 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
 
     public LatencySnapshot TakeInferenceTime() => inferenceTime.Take();
 
-    private void Publish(int count)
+    // False when the results were cleared after the input was prepared (the camera stopped during the inference)
+    private bool Publish(int count)
     {
         lock (resultSync)
         {
+            if (pendingGeneration != generation)
+            {
+                return false;
+            }
+
             workResults.AsSpan(0, count).CopyTo(results);
             info = pending with { Count = count };
+            return true;
         }
     }
 
@@ -178,6 +191,7 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
     {
         lock (resultSync)
         {
+            generation++;
             info = default;
         }
 
@@ -240,10 +254,13 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
             inferenceTime.Add(Stopwatch.GetElapsedTime(start));
             Interlocked.Increment(ref detectedFrames);
 
-            count = area.Current.FilterFaces(workResults.AsSpan(0, count));
-            Publish(enabled ? count : 0);
+            count = area.Current.Filter(workResults.AsSpan(0, count));
+            var published = Publish(enabled ? count : 0);
             Volatile.Write(ref state, StateIdle);
-            Detected?.Invoke(this, EventArgs.Empty);
+            if (published)
+            {
+                Detected?.Invoke(this, EventArgs.Empty);
+            }
         }
     }
 
@@ -263,45 +280,18 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
 
         var frame = e.Frame;
         var start = Stopwatch.GetTimestamp();
-        if (Prepare(current, frame))
+        if (DetectionInput.TryPrepare(frame, current.Input, current.InputWidth, current.InputHeight, FaceDetector.Normalization))
         {
             lastPreparedTimestamp = start;
             preprocessTime.Add(Stopwatch.GetElapsedTime(start));
             pending = new FaceDetectionInfo(frame.Sequence, frame.Width, frame.Height, 0);
+            pendingGeneration = Volatile.Read(ref generation);
             Volatile.Write(ref state, StateReady);
             signal.Set();
         }
         else
         {
             Volatile.Write(ref state, StateIdle);
-        }
-    }
-
-    private static bool Prepare(FaceDetector detector, in FrameBuffer frame)
-    {
-        var input = detector.Input;
-        var range = frame.ColorRange == VideoColorRange.Full ? YuvRange.Full : YuvRange.Limited;
-        try
-        {
-            switch (frame.PixelFormat)
-            {
-                case VideoPixelFormat.Bgra8:
-                    TensorConverter.BgraToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.Width, frame.Height, input, detector.InputWidth, detector.InputHeight, FaceDetector.Normalization);
-                    return true;
-                case VideoPixelFormat.Nv12:
-                    TensorConverter.Nv12ToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.GetPlaneSpan(frame.Plane1), frame.Plane1.Stride, frame.Width, frame.Height, range, input, detector.InputWidth, detector.InputHeight, FaceDetector.Normalization);
-                    return true;
-                case VideoPixelFormat.Yuy2:
-                    TensorConverter.Yuy2ToTensor(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.Width, frame.Height, range, input, detector.InputWidth, detector.InputHeight, FaceDetector.Normalization);
-                    return true;
-                default:
-                    return false;
-            }
-        }
-        catch (ArgumentException)
-        {
-            // Unexpected buffer layout
-            return false;
         }
     }
 }

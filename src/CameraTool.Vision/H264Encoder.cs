@@ -1,5 +1,6 @@
 namespace CameraTool.Vision;
 
+using System.Globalization;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 
@@ -17,15 +18,20 @@ public sealed unsafe class H264Encoder : IDisposable
 
     private const int InputFree = 0;
 
-    private const int InputFilling = 1;
+    private const int InputPending = 1;
 
-    private const int InputPending = 2;
-
-    private const int InputSubmitted = 3;
+    private const int InputSubmitted = 2;
 
     private const int NoInput = -1;
 
+    // E_FAIL, for an error event without a status
+    private const int UnspecifiedError = unchecked((int)0x80004005);
+
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(2);
+
+    // An encoder that works ahead asks for the next input before passing the output,
+    // so the wait for a frame is short while an output is still to come
+    private static readonly TimeSpan OutputWaitInterval = TimeSpan.FromMilliseconds(2);
 
     private readonly H264EncoderOptions options;
 
@@ -49,6 +55,7 @@ public sealed unsafe class H264Encoder : IDisposable
 
     private readonly IntPtr[] inputBuffers = new IntPtr[InputCount];
 
+    // Changed by the caller thread in inputSync, and by the encoder thread only for the pending input it took
     private readonly int[] inputStates = new int[InputCount];
 
     private IntPtr activate;
@@ -73,6 +80,10 @@ public sealed unsafe class H264Encoder : IDisposable
 
     private volatile bool keyFrameRequested;
 
+    private volatile bool faulted;
+
+    private int faultCode;
+
     private long droppedFrames;
 
     private Exception? failure;
@@ -83,6 +94,12 @@ public sealed unsafe class H264Encoder : IDisposable
 
     // Frames not encoded because the encoder was busy
     public long DroppedFrames => Interlocked.Read(ref droppedFrames);
+
+    // The encoder stopped working (for example the device was lost or reset) and encodes no more frames
+    public bool IsFaulted => faulted;
+
+    // HRESULT of the failure
+    public int FaultCode => Volatile.Read(ref faultCode);
 
     public H264Encoder(H264EncoderOptions options, H264OutputCallback callback)
     {
@@ -158,7 +175,7 @@ public sealed unsafe class H264Encoder : IDisposable
     //--------------------------------------------------------------------------------
 
     // NV12 of the size of the options, timestamp: 100 ns units (returned with the output).
-    // Returns false when the frame is dropped (no free input) or the encoder is stopped.
+    // Returns false when the frame is dropped (no free input) or the encoder is stopped or faulted.
     public bool Encode(ReadOnlySpan<byte> y, int yStride, ReadOnlySpan<byte> uv, int uvStride, long timestamp)
     {
         var width = options.Width;
@@ -175,7 +192,7 @@ public sealed unsafe class H264Encoder : IDisposable
 
         lock (inputSync)
         {
-            if (stopping || released)
+            if (stopping || released || faulted)
             {
                 return false;
             }
@@ -190,7 +207,6 @@ public sealed unsafe class H264Encoder : IDisposable
             var buffer = inputBuffers[slot];
             if (MediaFoundation.Lock(buffer, out var data, out _) < 0)
             {
-                Volatile.Write(ref inputStates[slot], InputFree);
                 return false;
             }
 
@@ -229,14 +245,13 @@ public sealed unsafe class H264Encoder : IDisposable
         return true;
     }
 
-    // A free input, or a submitted one the encoder has released
+    // A free input, or a submitted one the encoder has released (the state is not changed until the input is filled)
     private int AcquireInput()
     {
         for (var i = 0; i < InputCount; i++)
         {
             var state = Volatile.Read(ref inputStates[i]);
-            if (((state == InputFree) || ((state == InputSubmitted) && IsReleased(inputSamples[i]) && IsReleased(inputBuffers[i]))) &&
-                (Interlocked.CompareExchange(ref inputStates[i], InputFilling, state) == state))
+            if ((state == InputFree) || ((state == InputSubmitted) && IsReleased(inputSamples[i]) && IsReleased(inputBuffers[i])))
             {
                 return i;
             }
@@ -306,30 +321,73 @@ public sealed unsafe class H264Encoder : IDisposable
         }
     }
 
-    // The asynchronous encoder asks for an input and notifies an output with events
+    // The asynchronous encoder asks for inputs and notifies outputs with events.
+    // While an input is asked for, only the queued events are taken and the thread waits for a frame.
     private void RunAsync()
     {
+        var requests = 0;
+        var outputs = 0;
         var draining = false;
-        while (true)
+        while (!faulted)
         {
-            var type = MediaFoundation.GetEvent(events);
-            if (type == MediaFoundation.EventNeedInput)
+            var hr = MediaFoundation.GetEvent(events, requests == 0, out var type, out var status);
+            if (hr == MediaFoundation.NoEventsAvailable)
             {
-                if (!draining && !WaitAndSubmit())
+                if (stopping)
                 {
-                    // Stopping: the remaining output is passed before the end
+                    // The remaining output is passed before the end
                     draining = true;
+                    requests = 0;
                     MediaFoundation.ProcessMessage(transform, MediaFoundation.NotifyEndOfStream);
                     MediaFoundation.ProcessMessage(transform, MediaFoundation.CommandDrain);
+                }
+                else if (Submit())
+                {
+                    requests--;
+                    outputs++;
+                }
+                else
+                {
+                    inputArrived.WaitOne(outputs > 0 ? OutputWaitInterval : Timeout.InfiniteTimeSpan);
+                }
+
+                continue;
+            }
+
+            if (hr < 0)
+            {
+                // Shut down by Dispose when the drain does not finish, otherwise the encoder failed
+                if (!stopping)
+                {
+                    Fault(hr);
+                }
+
+                return;
+            }
+
+            if ((type == MediaFoundation.EventError) || (status < 0))
+            {
+                Fault(status < 0 ? status : UnspecifiedError);
+                return;
+            }
+
+            if (type == MediaFoundation.EventNeedInput)
+            {
+                if (!draining)
+                {
+                    requests++;
                 }
             }
             else if (type == MediaFoundation.EventHaveOutput)
             {
-                ProcessOutput();
+                if (ProcessOutput())
+                {
+                    outputs = Math.Max(outputs - 1, 0);
+                }
             }
-            else if ((type == MediaFoundation.EventDrainComplete) || (type == 0))
+            else if (type == MediaFoundation.EventDrainComplete)
             {
-                break;
+                return;
             }
         }
     }
@@ -337,7 +395,7 @@ public sealed unsafe class H264Encoder : IDisposable
     // The synchronous encoder outputs the frame for each input
     private void RunSync()
     {
-        while (!stopping)
+        while (!stopping && !faulted)
         {
             inputArrived.WaitOne();
             if (Submit())
@@ -348,6 +406,11 @@ public sealed unsafe class H264Encoder : IDisposable
             }
         }
 
+        if (faulted)
+        {
+            return;
+        }
+
         MediaFoundation.ProcessMessage(transform, MediaFoundation.NotifyEndOfStream);
         MediaFoundation.ProcessMessage(transform, MediaFoundation.CommandDrain);
         while (ProcessOutput())
@@ -355,22 +418,13 @@ public sealed unsafe class H264Encoder : IDisposable
         }
     }
 
-    // False when stopping
-    private bool WaitAndSubmit()
+    private void Fault(int code)
     {
-        while (!stopping)
-        {
-            if (Submit())
-            {
-                return true;
-            }
-
-            inputArrived.WaitOne();
-        }
-
-        return false;
+        Volatile.Write(ref faultCode, code);
+        faulted = true;
     }
 
+    // False when no frame is waiting, a failed input faults the encoder
     private bool Submit()
     {
         var slot = Interlocked.Exchange(ref pending, NoInput);
@@ -396,10 +450,15 @@ public sealed unsafe class H264Encoder : IDisposable
         }
 
         Volatile.Write(ref inputStates[slot], InputSubmitted);
-        return hr >= 0;
+        if (hr < 0)
+        {
+            Fault(hr);
+        }
+
+        return true;
     }
 
-    // Passes one output to the callback, false when the encoder needs more input
+    // Passes one output to the callback, false when the encoder has no output (a failure faults the encoder)
     private bool ProcessOutput()
     {
         var buffer = new MediaFoundation.OutputDataBuffer { Sample = providesSamples ? IntPtr.Zero : outputSample };
@@ -409,13 +468,25 @@ public sealed unsafe class H264Encoder : IDisposable
         {
             // The output type is set again
             var type = MediaFoundation.GetOutputAvailableType(transform, 0);
-            var result = (type != IntPtr.Zero) && (MediaFoundation.SetOutputType(transform, type) >= 0);
+            hr = type != IntPtr.Zero ? MediaFoundation.SetOutputType(transform, type) : UnspecifiedError;
             MediaFoundation.Release(type);
-            return result;
+            if (hr < 0)
+            {
+                Fault(hr);
+                return false;
+            }
+
+            return true;
         }
 
         if (hr < 0)
         {
+            // The synchronous encoder has no more output until the next input
+            if (hr != MediaFoundation.TransformNeedMoreInput)
+            {
+                Fault(hr);
+            }
+
             return false;
         }
 
@@ -471,72 +542,81 @@ public sealed unsafe class H264Encoder : IDisposable
 
     private void Initialize()
     {
-        // Hardware encoders first, the first one that accepts the settings is used
-        var candidates = new List<(IntPtr Activate, string Name, bool Hardware)>();
-        if (options.PreferHardware)
-        {
-            candidates.AddRange(MediaFoundation.EnumerateEncoders(MediaFoundation.EnumHardware | MediaFoundation.EnumAsync | MediaFoundation.EnumSortAndFilter).Select(static x => (x.Activate, x.Name, true)));
-        }
-
-        candidates.AddRange(MediaFoundation.EnumerateEncoders(MediaFoundation.EnumSync | MediaFoundation.EnumLocal | MediaFoundation.EnumSortAndFilter).Select(static x => (x.Activate, x.Name, false)));
-        foreach (var candidate in candidates)
-        {
-            if ((transform == IntPtr.Zero) && TryConfigure(candidate.Activate))
-            {
-                activate = candidate.Activate;
-                Name = candidate.Name;
-                IsHardware = candidate.Hardware;
-            }
-            else
-            {
-                MediaFoundation.Release(candidate.Activate);
-            }
-        }
-
-        if (transform == IntPtr.Zero)
-        {
-            throw new InvalidOperationException("H.264 encoder not found.");
-        }
-
         for (var i = 0; i < InputCount; i++)
         {
             inputSamples[i] = MediaFoundation.CreateSample(frameLength, out inputBuffers[i]);
         }
 
-        var info = MediaFoundation.GetOutputStreamInfo(transform);
-        providesSamples = (info.Flags & (MediaFoundation.OutputProvidesSamples | MediaFoundation.OutputCanProvideSamples)) != 0;
-        if (!providesSamples)
+        // Hardware encoders first, the first one that accepts the settings and starts streaming is used
+        // (a hardware encoder can fail to start, for example when its sessions are used up by other applications)
+        var candidates = new List<(IntPtr Activate, string Name, bool Hardware)>();
+        var lastError = 0;
+        try
         {
-            outputSample = MediaFoundation.CreateSample((int)Math.Max(info.Size, (uint)frameLength), out _);
+            if (options.PreferHardware)
+            {
+                candidates.AddRange(MediaFoundation.EnumerateEncoders(MediaFoundation.EnumHardware | MediaFoundation.EnumAsync | MediaFoundation.EnumSortAndFilter).Select(static x => (x.Activate, x.Name, true)));
+            }
+
+            candidates.AddRange(MediaFoundation.EnumerateEncoders(MediaFoundation.EnumSync | MediaFoundation.EnumLocal | MediaFoundation.EnumSortAndFilter).Select(static x => (x.Activate, x.Name, false)));
+            foreach (var candidate in candidates)
+            {
+                if (TryStart(candidate.Activate, ref lastError))
+                {
+                    activate = candidate.Activate;
+                    Name = candidate.Name;
+                    IsHardware = candidate.Hardware;
+                    return;
+                }
+            }
+        }
+        finally
+        {
+            foreach (var candidate in candidates)
+            {
+                if (candidate.Activate != activate)
+                {
+                    MediaFoundation.Release(candidate.Activate);
+                }
+            }
         }
 
-        Marshal.ThrowExceptionForHR(MediaFoundation.ProcessMessage(transform, MediaFoundation.NotifyBeginStreaming));
-        Marshal.ThrowExceptionForHR(MediaFoundation.ProcessMessage(transform, MediaFoundation.NotifyStartOfStream));
+        throw new InvalidOperationException(String.Create(CultureInfo.InvariantCulture, $"No H.264 encoder could be started. code=[0x{lastError:X8}]"));
     }
 
-    private bool TryConfigure(IntPtr candidateActivate)
+    // Configures the encoder and starts streaming, false when the encoder does not accept the settings or fails to start
+    private bool TryStart(IntPtr candidateActivate, ref int lastError)
     {
-        if (MediaFoundation.ActivateObject(candidateActivate, MediaFoundation.IidTransform, out var candidate) < 0)
+        var hr = MediaFoundation.ActivateObject(candidateActivate, MediaFoundation.IidTransform, out var candidate);
+        if (hr < 0)
         {
+            lastError = hr;
             return false;
         }
 
         var candidateCodecApi = IntPtr.Zero;
         var candidateEvents = IntPtr.Zero;
+        var candidateOutputSample = IntPtr.Zero;
+        var succeeded = false;
         try
         {
             var candidateAsync = false;
             var attributes = MediaFoundation.GetAttributes(candidate);
             if (attributes != IntPtr.Zero)
             {
-                // An asynchronous encoder is locked until the client unlocks it
-                if (MediaFoundation.TryGetUInt32(attributes, MediaFoundation.TransformAsync, out var value) && (value != 0))
+                try
                 {
-                    candidateAsync = true;
-                    MediaFoundation.SetUInt32(attributes, MediaFoundation.TransformAsyncUnlock, 1);
+                    // An asynchronous encoder is locked until the client unlocks it
+                    if (MediaFoundation.TryGetUInt32(attributes, MediaFoundation.TransformAsync, out var value) && (value != 0))
+                    {
+                        candidateAsync = true;
+                        MediaFoundation.SetUInt32(attributes, MediaFoundation.TransformAsyncUnlock, 1);
+                    }
                 }
-
-                MediaFoundation.Release(attributes);
+                finally
+                {
+                    MediaFoundation.Release(attributes);
+                }
             }
 
             // Some encoders apply the codec values before the types, others after them
@@ -557,20 +637,35 @@ public sealed unsafe class H264Encoder : IDisposable
                 }
             }
 
+            var info = MediaFoundation.GetOutputStreamInfo(candidate);
+            var candidateProvidesSamples = (info.Flags & (MediaFoundation.OutputProvidesSamples | MediaFoundation.OutputCanProvideSamples)) != 0;
+            if (!candidateProvidesSamples)
+            {
+                candidateOutputSample = MediaFoundation.CreateSample((int)Math.Max(info.Size, (uint)frameLength), out _);
+            }
+
+            MediaFoundation.ThrowIfFailed(MediaFoundation.ProcessMessage(candidate, MediaFoundation.NotifyBeginStreaming));
+            MediaFoundation.ThrowIfFailed(MediaFoundation.ProcessMessage(candidate, MediaFoundation.NotifyStartOfStream));
+
             transform = candidate;
             codecApi = candidateCodecApi;
             events = candidateEvents;
+            outputSample = candidateOutputSample;
             isAsync = candidateAsync;
+            providesSamples = candidateProvidesSamples;
+            succeeded = true;
             return true;
         }
-        catch (COMException)
+        catch (InvalidOperationException ex)
         {
+            lastError = ex.HResult;
             return false;
         }
         finally
         {
-            if (transform != candidate)
+            if (!succeeded)
             {
+                MediaFoundation.Release(candidateOutputSample);
                 MediaFoundation.Release(candidateEvents);
                 MediaFoundation.Release(candidateCodecApi);
                 MediaFoundation.Release(candidate);

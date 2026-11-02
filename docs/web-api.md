@@ -17,9 +17,11 @@ WebStream は `http://localhost:5080` で待ち受ける(⚠️ ローカル専�
 | `PUT /api/objects` | 物体検知の ON/OFF(`{"enabled": true}`) |
 | `GET /api/objects/labels` | 物体のクラス名とグループ(`[{"name": "person", "group": "person"}, ...]`。番号はヘッダーのクラス番号) |
 | `GET /api/area` | 検知範囲(`{"columns": 32, "rows": 24, "cells": [...]}`。ファイルと同じ形式) |
-| `PUT /api/area` | 検知範囲を変える(GET と同じ形式。すぐ反映してファイルに保存。形式が違えば 400) |
+| `PUT /api/area` | 検知範囲を変える(GET と同じ形式。すぐ反映してファイルに保存。形式が違えば 400、ファイルに書けなければ 500(反映はされ、再起動で元に戻る)) |
 
 `H264:Enable` が `false` のときは、`/ws-h264` は 404 を返す。
+
+`/api/status` の `areaVersion` は、範囲が変わるたびに増える番号(サーバーを起動するたびに違う値から始まる)。ビューアーは番号が変わったら `GET /api/area` で取り直す。
 
 ## 📨 WebSocket のメッセージ
 
@@ -34,7 +36,7 @@ WebStream は `http://localhost:5080` で待ち受ける(⚠️ ローカル専�
 | 4 | uint16 | 幅 |
 | 6 | uint16 | 高さ |
 | 8 | uint32 | 連番 |
-| 12 | uint32 | フラグ(bit 0: 顔検出の結果あり、bit 1: 動体検知の結果あり、bit 2: 物体検知の結果あり、bit 3: H.264 のキーフレーム) |
+| 12 | uint32 | フラグ(bit 0: 顔検出の結果あり、bit 1: 動体検知の結果あり、bit 2: 物体検知の結果あり、bit 3: H.264 のキーフレーム、bit 4: H.264 がフルレンジ(なければビデオレンジ)) |
 | 16 | float64 | 取込時刻(Unix ms) |
 | 24 | float64 | エンコード完了時刻(Unix ms) |
 
@@ -82,6 +84,7 @@ WebStream は `http://localhost:5080` で待ち受ける(⚠️ ローカル専�
 - 送信が遅れてフレームを飛ばしたら、次のキーフレームまで送らずに待つ
 - クライアントが送ったテキストのメッセージは、すべてキーフレームの要求として扱う(デコーダーのエラーやキューのあふれのときに使う)
 - キーフレームには毎回 SPS / PPS が付く。SPS からコーデック文字列(`avc1.4D401E` など)を作れる
+- 🎨 色: YUV は JPEG と同じ BT.601 のマトリックスで、原色と伝達関数は BT.709。範囲は bit 4 で知らせる。ソフトウェアのエンコーダーはストリームに範囲しか書かず、デコーダーはそれを無視するので、デコーダーに色空間を指定する(WebCodecs なら `VideoDecoderConfig.colorSpace` に `{ primaries: 'bt709', transfer: 'bt709', matrix: 'bt470bg', fullRange }`)
 
 ## 🎞️ MJPEG のパート
 

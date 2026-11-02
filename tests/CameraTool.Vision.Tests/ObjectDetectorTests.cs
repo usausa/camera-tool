@@ -4,6 +4,8 @@ public sealed class ObjectDetectorTests
 {
     private const double Tolerance = 1e-6;
 
+    private const float LowThreshold = 0.01f;
+
     //--------------------------------------------------------------------------------
     // Decode
     //--------------------------------------------------------------------------------
@@ -117,15 +119,29 @@ public sealed class ObjectDetectorTests
     public void LabelsHaveGroups(string name, ObjectGroup expected) =>
         Assert.Equal(expected, ObjectLabels.GetGroup(ObjectLabels.IndexOf(name)));
 
+    [Fact]
+    public void ParseClassesReadsNamesSeparatedByCommas()
+    {
+        Assert.Equal([0, 7, -1, 9], ObjectLabels.ParseClasses(" person,Truck,,unknown , traffic light"));
+        Assert.Empty(ObjectLabels.ParseClasses(string.Empty));
+    }
+
+    [Fact]
+    public void FindUnknownClassesReturnsUnknownNames()
+    {
+        Assert.Equal(["cats", "car2"], ObjectLabels.FindUnknownClasses("person,cats,dog,car2"));
+        Assert.Empty(ObjectLabels.FindUnknownClasses("person, Dog"));
+    }
+
     //--------------------------------------------------------------------------------
     // Model
     //--------------------------------------------------------------------------------
 
     [Fact]
-    public void DetectRunsModel()
+    public void DetectReturnsValidBoxes()
     {
-        // Arrange
-        using var detector = new ObjectDetector(Path.Combine(AppContext.BaseDirectory, "dfine-nano-coco.onnx"), new ObjectDetectorOptions());
+        // Arrange (a low threshold returns boxes even for a plain input, so that each box is checked)
+        using var detector = new ObjectDetector(Path.Combine(AppContext.BaseDirectory, "dfine-nano-coco.onnx"), new ObjectDetectorOptions { ConfidenceThreshold = LowThreshold });
         detector.Input.Fill(0.5f);
         var results = new ObjectBox[32];
 
@@ -135,14 +151,38 @@ public sealed class ObjectDetectorTests
         // Assert
         Assert.Equal(640, detector.InputWidth);
         Assert.Equal(640, detector.InputHeight);
-        Assert.InRange(count, 0, results.Length);
-        Assert.All(results[..count], x =>
+        Assert.InRange(count, 1, results.Length);
+        Assert.All(results[..count], static x =>
         {
             Assert.InRange(x.ClassId, 0, ObjectLabels.Count - 1);
-            Assert.InRange(x.Confidence, 0.5f, 1f);
+            Assert.InRange(x.Confidence, LowThreshold, 1f);
             Assert.InRange(x.Left, 0f, x.Right);
             Assert.InRange(x.Top, 0f, x.Bottom);
+            Assert.InRange(x.Right, x.Left, 1f);
+            Assert.InRange(x.Bottom, x.Top, 1f);
         });
+    }
+
+    [Fact]
+    public void DetectFindsNothingInPlainInput()
+    {
+        // Arrange
+        using var detector = new ObjectDetector(Path.Combine(AppContext.BaseDirectory, "dfine-nano-coco.onnx"), new ObjectDetectorOptions());
+        detector.Input.Fill(0.5f);
+
+        // Act
+        var count = detector.Detect(new ObjectBox[32]);
+
+        // Assert
+        Assert.Equal(0, count);
+    }
+
+    // The tensor converter takes the normalization of the detector: D-FINE expects RGB in 0-1, RFB-320 (x - 127) / 128
+    [Fact]
+    public void DetectorsUseTheirNormalization()
+    {
+        Assert.Equal(TensorNormalization.Unit, ObjectDetector.Normalization);
+        Assert.Equal(TensorNormalization.Centered, FaceDetector.Normalization);
     }
 
     [Fact]

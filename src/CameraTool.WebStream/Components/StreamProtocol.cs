@@ -17,7 +17,8 @@ public static class StreamProtocol
     //  4 uint16  width
     //  6 uint16  height
     //  8 uint32  sequence
-    // 12 uint32  flags (bit 0: face section, bit 1: motion section, bit 2: object section, bit 3: H.264 key frame)
+    // 12 uint32  flags (bit 0: face section, bit 1: motion section, bit 2: object section, bit 3: H.264 key frame,
+    //            bit 4: H.264 in full range, BT.601 matrix; otherwise video range)
     // 16 float64 capture time (Unix ms)
     // 24 float64 encoded time (Unix ms)
     // Face section (while face detection is enabled)
@@ -58,6 +59,8 @@ public static class StreamProtocol
 
     private const uint KeyFrameFlag = 0x8;
 
+    private const uint FullRangeFlag = 0x10;
+
     public const int MaxHeaderLength =
         BaseHeaderLength +
         FaceSectionLength + (FaceLength * FaceDetectionService.MaxFaces) +
@@ -91,7 +94,8 @@ public static class StreamProtocol
         var flags = (header.Detection.HasValue ? FaceSectionFlag : 0) |
             (header.Motion.HasValue ? MotionSectionFlag : 0) |
             (header.ObjectDetection.HasValue ? ObjectSectionFlag : 0) |
-            (header.KeyFrame ? KeyFrameFlag : 0);
+            (header.KeyFrame ? KeyFrameFlag : 0) |
+            (header.FullRange ? FullRangeFlag : 0);
         BinaryPrimitives.WriteUInt16LittleEndian(destination, HeaderVersion);
         BinaryPrimitives.WriteUInt16LittleEndian(destination[2..], (ushort)destination.Length);
         BinaryPrimitives.WriteUInt16LittleEndian(destination[4..], (ushort)header.Width);
@@ -189,6 +193,10 @@ public readonly ref struct FrameHeader
 
     // H.264 frame that does not depend on the previous frames
     public bool KeyFrame { get; init; }
+
+    // H.264 data in full range (a decoder does not use the range in the stream without the colour description,
+    // which the software encoder does not write)
+    public bool FullRange { get; init; }
 
     // Face section (null: face detection is disabled)
     public FaceDetectionInfo? Detection { get; init; }

@@ -58,6 +58,9 @@ public sealed class AreaService
 
     public DetectionArea Current => current;
 
+    // Set when the last save failed (the area is used until the application stops)
+    public string? ErrorMessage { get; private set; }
+
     public AreaService(ILogger<AreaService> log, AreaSettings settings)
     {
         this.log = log;
@@ -89,10 +92,12 @@ public sealed class AreaService
                 File.WriteAllBytes(temporary, JsonSerializer.SerializeToUtf8Bytes(AreaData.From(area), AreaJsonContext.Default.AreaData));
                 File.Move(temporary, path, true);
                 log.InfoAreaSaved(path, area.CellCount);
+                ErrorMessage = null;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 log.ErrorAreaSaveFailed(ex, path);
+                ErrorMessage = String.Create(CultureInfo.InvariantCulture, $"Area not saved: {ex.Message}");
             }
         }
     }

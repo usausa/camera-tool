@@ -125,8 +125,8 @@ public static class DetectionEndpoints
     private static Ok<AreaData> HandleArea(AreaService area) =>
         TypedResults.Ok(AreaData.From(area.Current));
 
-    // Applied to the next frame and saved to the file
-    private static Results<NoContent, BadRequest> HandleAreaUpdate(AreaData request, AreaService area)
+    // Applied to the next frame and saved to the file (500 when the file cannot be written, the area is used until the server stops)
+    private static Results<NoContent, BadRequest, ProblemHttpResult> HandleAreaUpdate(AreaData request, AreaService area)
     {
         if (!request.TryGetArea(out var value))
         {
@@ -134,7 +134,11 @@ public static class DetectionEndpoints
         }
 
         area.Update(value);
-        area.Save();
+        if (!area.Save())
+        {
+            return TypedResults.Problem("The area could not be saved to the file.", statusCode: StatusCodes.Status500InternalServerError);
+        }
+
         return TypedResults.NoContent();
     }
 }

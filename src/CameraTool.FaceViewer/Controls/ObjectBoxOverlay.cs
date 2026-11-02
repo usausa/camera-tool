@@ -8,19 +8,14 @@ using CameraTool.FaceViewer.Components;
 using CameraTool.FaceViewer.Helpers;
 using CameraTool.Vision;
 
-// Draws object boxes in the same layout as VideoView, in the color of the class group.
-// Labels are child visuals that are redrawn only when the text changes and moved by Offset.
-// The confidence of an object changes on most updates, so each label text is drawn once into a frozen drawing
-// and reused, because drawing the text itself allocates.
+// Draws object boxes in the same layout as VideoView, in the color of the class group,
+// with the class and confidence labels of BoxLabels.
 public sealed partial class ObjectBoxOverlay : FrameworkElement
 {
     private const double LineThickness = 2;
 
-    private const double LabelFontSize = 12;
-
-    private const double LabelMargin = 2;
-
-    private const int NoLabel = -1;
+    // Label key: class id * PercentCount + percent
+    private const int PercentCount = 101;
 
     // Indexed by ObjectGroup (Other, Person, Animal, Vehicle)
     private static readonly SolidColorBrush[] GroupBrushes =
@@ -33,20 +28,16 @@ public sealed partial class ObjectBoxOverlay : FrameworkElement
 
     private static readonly Pen[] GroupPens = GroupBrushes.Select(static x => CreatePen(x, LineThickness)).ToArray();
 
-    private static readonly Typeface LabelTypeface = new("Segoe UI");
-
     private readonly ObjectBox[] boxes = new ObjectBox[ObjectDetectionService.MaxObjects];
 
     private readonly VisualCollection visuals;
 
     private readonly DrawingVisual boxVisual = new();
 
-    private readonly DrawingVisual[] labelVisuals = new DrawingVisual[ObjectDetectionService.MaxObjects];
-
-    // Class id and percent of the drawn label
-    private readonly int[] labelKeys = new int[ObjectDetectionService.MaxObjects];
-
-    private readonly Dictionary<int, Label> labels = [];
+    private readonly BoxLabels labels = new(
+        ObjectDetectionService.MaxObjects,
+        static key => String.Create(CultureInfo.InvariantCulture, $"{ObjectLabels.Names[key / PercentCount]} {key % PercentCount}%"),
+        static key => GroupBrushes[(int)ObjectLabels.GetGroup(key / PercentCount)]);
 
     private readonly Action updateRequestedAction;
 
@@ -65,12 +56,7 @@ public sealed partial class ObjectBoxOverlay : FrameworkElement
 
         // Create children before setting properties that enumerate them
         visuals = new VisualCollection(this) { boxVisual };
-        for (var i = 0; i < labelVisuals.Length; i++)
-        {
-            labelVisuals[i] = new DrawingVisual();
-            labelKeys[i] = NoLabel;
-            visuals.Add(labelVisuals[i]);
-        }
+        labels.AddTo(visuals);
 
         IsHitTestVisible = false;
         Loaded += OnLoaded;
@@ -93,8 +79,7 @@ public sealed partial class ObjectBoxOverlay : FrameworkElement
 
     protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
     {
-        labels.Clear();
-        labelKeys.AsSpan().Fill(NoLabel);
+        labels.Reset();
         base.OnDpiChanged(oldDpi, newDpi);
         Redraw();
     }
@@ -113,67 +98,19 @@ public sealed partial class ObjectBoxOverlay : FrameworkElement
         }
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        for (var i = 0; i < labelVisuals.Length; i++)
+        for (var i = 0; i < count; i++)
         {
-            var visual = labelVisuals[i];
-            if (i < count)
-            {
-                var key = (boxes[i].ClassId * 101) + (int)(boxes[i].Confidence * 100);
-                var label = GetLabel(key, pixelsPerDip);
-                if (labelKeys[i] != key)
-                {
-                    using var context = visual.RenderOpen();
-                    context.DrawDrawing(label.Drawing);
-                    labelKeys[i] = key;
-                }
-
-                var rect = ToRect(area, boxes[i]);
-                visual.Offset = new Vector(rect.Left, Math.Max(area.Top, rect.Top - label.Height - LabelMargin));
-            }
-            else if (labelKeys[i] != NoLabel)
-            {
-                using (visual.RenderOpen())
-                {
-                    // Clear
-                }
-
-                labelKeys[i] = NoLabel;
-            }
+            var key = (boxes[i].ClassId * PercentCount) + (int)(boxes[i].Confidence * 100);
+            labels.Show(i, key, area, ToRect(area, boxes[i]), pixelsPerDip);
         }
+
+        labels.HideFrom(count);
     }
 
     private static Rect ToRect(Rect area, ObjectBox box) =>
         new(
             new Point(area.X + (box.Left * area.Width), area.Y + (box.Top * area.Height)),
             new Point(area.X + (box.Right * area.Width), area.Y + (box.Bottom * area.Height)));
-
-    // key: class id * 101 + percent
-    private Label GetLabel(int key, double pixelsPerDip)
-    {
-        if (!labels.TryGetValue(key, out var label))
-        {
-            var classId = key / 101;
-            var text = new FormattedText(
-                String.Create(CultureInfo.InvariantCulture, $"{ObjectLabels.Names[classId]} {key % 101}%"),
-                CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight,
-                LabelTypeface,
-                LabelFontSize,
-                GroupBrushes[(int)ObjectLabels.GetGroup(classId)],
-                pixelsPerDip);
-            var drawing = new DrawingGroup();
-            using (var context = drawing.Open())
-            {
-                context.DrawText(text, default);
-            }
-
-            drawing.Freeze();
-            label = new Label(drawing, text.Height);
-            labels[key] = label;
-        }
-
-        return label;
-    }
 
     private static SolidColorBrush CreateBrush(Color color)
     {
@@ -249,7 +186,4 @@ public sealed partial class ObjectBoxOverlay : FrameworkElement
             Redraw();
         }
     }
-
-    // Height: line height of the text
-    private readonly record struct Label(Drawing Drawing, double Height);
 }

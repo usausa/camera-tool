@@ -24,6 +24,7 @@ camera-tool の使い方と技術資料。ツールの概要は [README](../READ
 | `src/CameraTool.FaceViewer` | カメラ映像と検知の結果を表示し、検知範囲を編集する WPF アプリ |
 | `src/CameraTool.WebStream` | カメラ映像をブラウザーへ配信する ASP.NET Core サーバー(WebSocket の JPEG / H.264、MJPEG) |
 | `tests/CameraTool.Vision.Tests` | Vision の単体テスト(xunit.v3) |
+| `tests/CameraTool.WebStream.Tests` | WebStream の単体テスト(xunit.v3) |
 
 ## 🖥️ 計測の環境
 
