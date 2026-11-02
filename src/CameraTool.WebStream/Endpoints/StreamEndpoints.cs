@@ -159,6 +159,7 @@ public static class StreamEndpoints
         log.InfoClientConnected(MjpegClient, connection.RemoteIpAddress, connection.RemotePort);
 
         var writer = response.BodyWriter;
+        writer.Write(StreamProtocol.FirstPartHeader);
         try
         {
             while (true)
@@ -167,9 +168,8 @@ public static class StreamEndpoints
                 try
                 {
                     // Copied to the response buffer
-                    writer.Write(frame.PartHeader.Span);
                     writer.Write(frame.Jpeg.Span);
-                    writer.Write(StreamProtocol.PartTrailer);
+                    writer.Write(StreamProtocol.NextPartHeader);
                     subscription.Complete(frame);
                 }
                 finally

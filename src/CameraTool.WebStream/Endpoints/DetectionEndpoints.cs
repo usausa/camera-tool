@@ -8,9 +8,18 @@ using Microsoft.AspNetCore.Http.HttpResults;
 // Models
 //--------------------------------------------------------------------------------
 
+// Only the specified values are changed
 public sealed class DetectionRequest
 {
-    public bool Enabled { get; set; }
+    public bool? Enabled { get; set; }
+
+    // Face detection only on motion
+    public bool? MotionGate { get; set; }
+}
+
+public sealed class MotionRequest
+{
+    public bool? Enabled { get; set; }
 }
 
 //--------------------------------------------------------------------------------
@@ -25,16 +34,58 @@ public static class DetectionEndpoints
 
     public static void MapDetectionEndpoints(this WebApplication app)
     {
-        app.MapPut("/api/detection", HandleUpdate);
+        app.MapPut("/api/detection", HandleDetectionUpdate);
+        app.MapPut("/api/motion", HandleMotionUpdate);
+        app.MapGet("/api/area", HandleArea);
+        app.MapPut("/api/area", HandleAreaUpdate);
     }
 
     //--------------------------------------------------------------------------------
     // Update
     //--------------------------------------------------------------------------------
 
-    private static NoContent HandleUpdate(DetectionRequest request, FaceDetectionService detection)
+    private static NoContent HandleDetectionUpdate(DetectionRequest request, FaceDetectionService detection)
     {
-        detection.IsEnabled = request.Enabled;
+        if (request.Enabled is { } enabled)
+        {
+            detection.IsEnabled = enabled;
+        }
+
+        if (request.MotionGate is { } motionGate)
+        {
+            detection.IsMotionGateEnabled = motionGate;
+        }
+
+        return TypedResults.NoContent();
+    }
+
+    private static NoContent HandleMotionUpdate(MotionRequest request, MotionService motion)
+    {
+        if (request.Enabled is { } enabled)
+        {
+            motion.IsEnabled = enabled;
+        }
+
+        return TypedResults.NoContent();
+    }
+
+    //--------------------------------------------------------------------------------
+    // Area
+    //--------------------------------------------------------------------------------
+
+    private static Ok<AreaData> HandleArea(AreaService area) =>
+        TypedResults.Ok(AreaData.From(area.Current));
+
+    // Applied to the next frame and saved to the file
+    private static Results<NoContent, BadRequest> HandleAreaUpdate(AreaData request, AreaService area)
+    {
+        if (!request.TryGetArea(out var value))
+        {
+            return TypedResults.BadRequest();
+        }
+
+        area.Update(value);
+        area.Save();
         return TypedResults.NoContent();
     }
 }

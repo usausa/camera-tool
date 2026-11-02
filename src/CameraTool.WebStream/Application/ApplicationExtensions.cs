@@ -56,13 +56,20 @@ public static class ApplicationExtensions
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<StreamSettings>>().Value);
         builder.Services.AddOptions<DetectSettings>().BindConfiguration("Detect").ValidateDataAnnotations().ValidateOnStart();
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<DetectSettings>>().Value);
+        builder.Services.AddOptions<MotionSettings>().BindConfiguration("Motion").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<MotionSettings>>().Value);
+        builder.Services.AddOptions<AreaSettings>().BindConfiguration("Area").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<AreaSettings>>().Value);
 
-        // Components (the stream handles the frame before the detection)
+        // Components (the frame is handled in the order of the stream, the motion and the face detection)
         builder.Services.AddSingleton<VideoSource>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<VideoSource>());
+        builder.Services.AddSingleton<AreaService>();
         builder.Services.AddSingleton<FrameHub>();
         builder.Services.AddSingleton<StreamService>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<StreamService>());
+        builder.Services.AddSingleton<MotionService>();
+        builder.Services.AddHostedService(static p => p.GetRequiredService<MotionService>());
         builder.Services.AddSingleton<FaceDetectionService>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<FaceDetectionService>());
         builder.Services.AddSingleton<StatusService>();

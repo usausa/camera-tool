@@ -7,7 +7,7 @@ using CameraTool.Capture;
 using CameraTool.Vision;
 using CameraTool.WebStream.Settings;
 
-// Encodes the frame on the capture thread and publishes it with the latest detection results
+// Encodes the frame on the capture thread and publishes it with the latest detection results (faces and motion)
 public sealed class StreamService : IHostedService, IDisposable
 {
     private const int MinimumCapacity = 16 * 1024;
@@ -20,10 +20,14 @@ public sealed class StreamService : IHostedService, IDisposable
 
     private readonly FaceDetectionService detection;
 
+    private readonly MotionService motion;
+
     private readonly JpegEncoder encoder;
 
     // Detection results attached to the frame (capture thread only)
     private readonly FaceBox[] faces = new FaceBox[FaceDetectionService.MaxFaces];
+
+    private readonly byte[] motionMask = new byte[MotionDetector.MaskLength];
 
     private readonly FramePool pool = new();
 
@@ -46,12 +50,13 @@ public sealed class StreamService : IHostedService, IDisposable
 
     public int AllocatedFrames => pool.Created;
 
-    public StreamService(ILogger<StreamService> log, StreamSettings settings, VideoSource source, FrameHub hub, FaceDetectionService detection)
+    public StreamService(ILogger<StreamService> log, StreamSettings settings, VideoSource source, FrameHub hub, FaceDetectionService detection, MotionService motion)
     {
         this.log = log;
         this.source = source;
         this.hub = hub;
         this.detection = detection;
+        this.motion = motion;
         encoder = new JpegEncoder(settings.Quality);
     }
 
@@ -138,13 +143,25 @@ public sealed class StreamService : IHostedService, IDisposable
 
         // Latest detection results, detected in a previous frame
         FaceDetectionInfo? detected = detection.IsEnabled && detection.IsAvailable ? detection.CopyResults(faces) : null;
+        MotionInfo? moved = motion.IsEnabled ? motion.CopyResults(motionMask) : null;
 
         // Unix time of the capture, calculated from the capture clock
         var now = CaptureClock.Now;
         var unixNow = (DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds;
-        var captureTime = unixNow - (now - frame.CaptureTime).TotalMilliseconds;
-        var headerLength = StreamProtocol.GetHeaderLength(detected);
-        StreamProtocol.WriteHeader(encoded.GetHeaderBuffer(headerLength), width, height, frame.Sequence, captureTime, unixNow, detected, faces);
+        var header = new FrameHeader
+        {
+            Width = width,
+            Height = height,
+            Sequence = frame.Sequence,
+            CaptureTime = unixNow - (now - frame.CaptureTime).TotalMilliseconds,
+            EncodedTime = unixNow,
+            Detection = detected,
+            Faces = faces,
+            Motion = moved,
+            MotionMask = motionMask
+        };
+        var headerLength = StreamProtocol.GetHeaderLength(header);
+        StreamProtocol.WriteHeader(encoded.GetHeaderBuffer(headerLength), header);
         encoded.Commit(Interlocked.Increment(ref encodedFrames), headerLength, written);
 
         Interlocked.Add(ref encodedBytes, written);

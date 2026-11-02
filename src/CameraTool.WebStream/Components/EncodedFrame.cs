@@ -5,11 +5,7 @@ using System.Diagnostics;
 // Encoded once and shared by all clients, returned to the pool when all references are released
 public sealed class EncodedFrame
 {
-    private const int PartHeaderCapacity = 128;
-
     private readonly FramePool pool;
-
-    private readonly byte[] partHeader = new byte[PartHeaderCapacity];
 
     // The JPEG data follows the space reserved for the longest header, the header is placed just before it
     private byte[] buffer = [];
@@ -17,8 +13,6 @@ public sealed class EncodedFrame
     private int headerLength;
 
     private int jpegLength;
-
-    private int partHeaderLength;
 
     private int references;
 
@@ -32,9 +26,6 @@ public sealed class EncodedFrame
     public ReadOnlyMemory<byte> Message => buffer.AsMemory(StreamProtocol.MaxHeaderLength - headerLength, headerLength + jpegLength);
 
     public ReadOnlyMemory<byte> Jpeg => buffer.AsMemory(StreamProtocol.MaxHeaderLength, jpegLength);
-
-    // MJPEG part header
-    public ReadOnlyMemory<byte> PartHeader => partHeader.AsMemory(0, partHeaderLength);
 
     internal EncodedFrame(FramePool pool)
     {
@@ -60,7 +51,6 @@ public sealed class EncodedFrame
         Index = index;
         this.headerLength = headerLength;
         this.jpegLength = jpegLength;
-        partHeaderLength = StreamProtocol.WritePartHeader(partHeader, jpegLength);
         PublishTimestamp = Stopwatch.GetTimestamp();
     }
 

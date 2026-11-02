@@ -59,6 +59,25 @@ public sealed class StreamStatus
 
     public int Faces { get; init; }
 
+    public bool MotionEnabled { get; init; }
+
+    // Face detection only on motion
+    public bool MotionGate { get; init; }
+
+    // Motion within the hold time
+    public bool Moving { get; init; }
+
+    // Percentage of the moving cells to the cells in the detection area in the latest frame
+    public double MotionLevel { get; init; }
+
+    public LatencyValue MotionTime { get; init; }
+
+    // Incremented when the detection area changes
+    public int AreaVersion { get; init; }
+
+    // Cells in the detection area (all cells when it is the full area)
+    public int AreaCells { get; init; }
+
     public double CpuUsage { get; init; }
 
     // KB/s

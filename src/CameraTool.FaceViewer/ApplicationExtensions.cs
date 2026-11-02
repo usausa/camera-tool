@@ -52,10 +52,16 @@ public static class ApplicationExtensions
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<DisplaySettings>>().Value);
         builder.Services.AddOptions<DetectSettings>().BindConfiguration("Detect").ValidateDataAnnotations().ValidateOnStart();
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<DetectSettings>>().Value);
+        builder.Services.AddOptions<MotionSettings>().BindConfiguration("Motion").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<MotionSettings>>().Value);
+        builder.Services.AddOptions<AreaSettings>().BindConfiguration("Area").ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<AreaSettings>>().Value);
 
         // Components
         builder.Services.AddSingleton<VideoSource>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<VideoSource>());
+        builder.Services.AddSingleton<AreaService>();
+        builder.Services.AddSingleton<MotionService>();
         builder.Services.AddSingleton<FaceDetectionService>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<FaceDetectionService>());
 

@@ -12,6 +12,8 @@ public readonly record struct FaceDetectionInfo(long Sequence, int FrameWidth, i
 
 // Detects faces on a dedicated thread while clients are connected.
 // The capture thread prepares the input only when the detector is idle, so detection never blocks capture.
+// With the motion gate, the input is prepared only once per idle interval while there is no motion.
+// Faces whose center is outside the detection area are removed from the results.
 public sealed class FaceDetectionService : IHostedService, IDisposable
 {
     public const int MaxFaces = 32;
@@ -32,6 +34,14 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
 
     private readonly FrameHub hub;
 
+    private readonly MotionService motion;
+
+    private readonly AreaService area;
+
+    private readonly TimeSpan idleInterval;
+
+    private readonly TimeSpan motionHoldTime;
+
     private readonly AutoResetEvent signal = new(false);
 
     private readonly Lock resultSync = new();
@@ -50,9 +60,14 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
 
     private volatile bool enabled;
 
+    private volatile bool motionGate;
+
     private FaceDetector? detector;
 
     private int state;
+
+    // Stopwatch timestamp, capture thread only
+    private long lastPreparedTimestamp;
 
     private FaceDetectionInfo pending;
 
@@ -75,6 +90,16 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
         }
     }
 
+    public bool IsMotionGateEnabled
+    {
+        get => motionGate;
+        set
+        {
+            motionGate = value;
+            log.InfoMotionGateChanged(value);
+        }
+    }
+
     public bool IsAvailable => Volatile.Read(ref detector) is not null;
 
     public string? ErrorMessage { get; private set; }
@@ -92,13 +117,18 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
         }
     }
 
-    public FaceDetectionService(ILogger<FaceDetectionService> log, DetectSettings settings, VideoSource source, FrameHub hub)
+    public FaceDetectionService(ILogger<FaceDetectionService> log, DetectSettings settings, VideoSource source, FrameHub hub, MotionService motion, AreaService area)
     {
         this.log = log;
         this.settings = settings;
         this.source = source;
         this.hub = hub;
+        this.motion = motion;
+        this.area = area;
+        idleInterval = TimeSpan.FromMilliseconds(settings.IdleInterval);
+        motionHoldTime = TimeSpan.FromMilliseconds(settings.MotionHoldTime);
         enabled = settings.Enable;
+        motionGate = settings.MotionGate;
     }
 
     public void Dispose()
@@ -215,6 +245,7 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
             inferenceTime.Add(Stopwatch.GetElapsedTime(start));
             Interlocked.Increment(ref detectedFrames);
 
+            count = area.Current.FilterFaces(workResults.AsSpan(0, count));
             Publish(enabled ? count : 0);
             Volatile.Write(ref state, StateIdle);
         }
@@ -230,6 +261,7 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
         if (!enabled ||
             !hub.HasClients ||
             (Volatile.Read(ref detector) is not { } current) ||
+            IsIdle() ||
             (Interlocked.CompareExchange(ref state, StatePreparing, StateIdle) != StateIdle))
         {
             return;
@@ -239,6 +271,7 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
         var start = Stopwatch.GetTimestamp();
         if (Prepare(current, frame))
         {
+            lastPreparedTimestamp = start;
             preprocessTime.Add(Stopwatch.GetElapsedTime(start));
             pending = new FaceDetectionInfo(frame.Sequence, frame.Width, frame.Height, 0);
             Volatile.Write(ref state, StateReady);
@@ -249,6 +282,12 @@ public sealed class FaceDetectionService : IHostedService, IDisposable
             Volatile.Write(ref state, StateIdle);
         }
     }
+
+    private bool IsIdle() =>
+        motionGate &&
+        motion.IsEnabled &&
+        !motion.IsMoving(motionHoldTime) &&
+        (Stopwatch.GetElapsedTime(lastPreparedTimestamp) < idleInterval);
 
     private static bool Prepare(FaceDetector detector, in FrameBuffer frame)
     {

@@ -2,6 +2,8 @@ namespace CameraTool.WebStream.Components;
 
 using System.Diagnostics;
 
+using CameraTool.WebStream.Settings;
+
 // Statistics updated every second
 public sealed class StatusService : BackgroundService
 {
@@ -23,11 +25,26 @@ public sealed class StatusService : BackgroundService
 
     private readonly FaceDetectionService detection;
 
+    private readonly MotionService motion;
+
+    private readonly AreaService area;
+
+    private readonly TimeSpan motionHoldTime;
+
     private StreamStatus current = new();
 
     public StreamStatus Current => Volatile.Read(ref current);
 
-    public StatusService(ILogger<StatusService> log, TimeProvider timeProvider, VideoSource source, StreamService stream, FrameHub hub, FaceDetectionService detection)
+    public StatusService(
+        ILogger<StatusService> log,
+        TimeProvider timeProvider,
+        DetectSettings detectSettings,
+        VideoSource source,
+        StreamService stream,
+        FrameHub hub,
+        FaceDetectionService detection,
+        MotionService motion,
+        AreaService area)
     {
         this.log = log;
         this.timeProvider = timeProvider;
@@ -35,6 +52,9 @@ public sealed class StatusService : BackgroundService
         this.stream = stream;
         this.hub = hub;
         this.detection = detection;
+        this.motion = motion;
+        this.area = area;
+        motionHoldTime = TimeSpan.FromMilliseconds(detectSettings.MotionHoldTime);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -116,6 +136,13 @@ public sealed class StatusService : BackgroundService
             PreprocessTime = LatencyValue.From(detection.TakePreprocessTime()),
             InferenceTime = LatencyValue.From(detection.TakeInferenceTime()),
             Faces = detection.FaceCount,
+            MotionEnabled = motion.IsEnabled,
+            MotionGate = detection.IsMotionGateEnabled,
+            Moving = motion.IsEnabled && motion.IsMoving(motionHoldTime),
+            MotionLevel = motion.Info.Level * 100,
+            MotionTime = LatencyValue.From(motion.TakeProcessTime()),
+            AreaVersion = area.Version,
+            AreaCells = area.Current.CellCount,
             CpuUsage = (counters.ProcessorTime - last.ProcessorTime).TotalSeconds / elapsed / Environment.ProcessorCount * 100,
             Allocated = (counters.Allocated - last.Allocated) / BytesPerKilobyte / elapsed,
             Gc0 = (counters.Gc0 - last.Gc0) / elapsed,
@@ -159,6 +186,13 @@ public sealed class StatusService : BackgroundService
             status.InferenceTime.Average,
             status.InferenceTime.Max,
             status.Faces);
+        log.DebugMotionStatistics(
+            status.MotionEnabled,
+            status.MotionGate,
+            status.Moving,
+            status.MotionLevel,
+            status.MotionTime.Average,
+            status.MotionTime.Max);
     }
 
     private readonly record struct Counters(

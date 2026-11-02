@@ -46,6 +46,11 @@ body {
     object-fit: contain;
 }
 
+.video canvas.editing {
+    cursor: crosshair;
+    touch-action: none;
+}
+
 .panel {
     padding: 0 16px 16px;
     overflow-y: auto;
@@ -62,7 +67,8 @@ body {
     gap: 16px;
 }
 
-.option {
+.option,
+.action {
     display: block;
     margin-top: 8px;
 }

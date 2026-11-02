@@ -17,14 +17,20 @@ public static class StreamProtocol
     //  4 uint16  width
     //  6 uint16  height
     //  8 uint32  sequence
-    // 12 uint32  flags (bit 0: face section)
+    // 12 uint32  flags (bit 0: face section, bit 1: motion section)
     // 16 float64 capture time (Unix ms)
     // 24 float64 encoded time (Unix ms)
     // Face section (while face detection is enabled)
-    // 32 uint32  sequence of the frame the faces were detected in (0: not detected yet)
-    // 36 uint16  face count
-    // 38 uint16  reserved
-    // 40 float32 x 5 for each face: left, top, right, bottom (0-1), confidence
+    // +0 uint32  sequence of the frame the faces were detected in (0: not detected yet)
+    // +4 uint16  face count
+    // +6 uint16  reserved
+    // +8 float32 x 5 for each face: left, top, right, bottom (0-1), confidence
+    // Motion section (while motion detection is enabled), after the face section
+    // +0 uint32  sequence of the frame the motion was detected in (0: not detected yet)
+    // +4 uint16  moving cell count
+    // +6 uint8   columns
+    // +7 uint8   rows
+    // +8 byte[]  cell mask (row major, the lowest bit first)
     public const int HeaderVersion = 1;
 
     private const int BaseHeaderLength = 32;
@@ -33,42 +39,70 @@ public static class StreamProtocol
 
     private const int FaceLength = 20;
 
+    private const int MotionSectionLength = 8 + MotionDetector.MaskLength;
+
     private const uint FaceSectionFlag = 0x1;
 
-    public const int MaxHeaderLength = BaseHeaderLength + FaceSectionLength + (FaceLength * FaceDetectionService.MaxFaces);
+    private const uint MotionSectionFlag = 0x2;
 
-    public static int GetHeaderLength(in FaceDetectionInfo? detection) =>
-        detection is { } value ? BaseHeaderLength + FaceSectionLength + (FaceLength * value.Count) : BaseHeaderLength;
+    public const int MaxHeaderLength = BaseHeaderLength + FaceSectionLength + (FaceLength * FaceDetectionService.MaxFaces) + MotionSectionLength;
 
-    // The destination length must be GetHeaderLength
-    public static void WriteHeader(Span<byte> destination, int width, int height, long sequence, double captureTime, double encodedTime, in FaceDetectionInfo? detection, ReadOnlySpan<FaceBox> faces)
+    public static int GetHeaderLength(in FrameHeader header)
     {
-        BinaryPrimitives.WriteUInt16LittleEndian(destination, HeaderVersion);
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[2..], (ushort)destination.Length);
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[4..], (ushort)width);
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[6..], (ushort)height);
-        BinaryPrimitives.WriteUInt32LittleEndian(destination[8..], (uint)sequence);
-        BinaryPrimitives.WriteUInt32LittleEndian(destination[12..], detection.HasValue ? FaceSectionFlag : 0);
-        BinaryPrimitives.WriteDoubleLittleEndian(destination[16..], captureTime);
-        BinaryPrimitives.WriteDoubleLittleEndian(destination[24..], encodedTime);
-        if (detection is not { } value)
+        var length = BaseHeaderLength;
+        if (header.Detection is { } detection)
         {
-            return;
+            length += FaceSectionLength + (FaceLength * detection.Count);
         }
 
-        var section = destination[BaseHeaderLength..];
-        BinaryPrimitives.WriteUInt32LittleEndian(section, (uint)value.Sequence);
-        BinaryPrimitives.WriteUInt16LittleEndian(section[4..], (ushort)value.Count);
-        BinaryPrimitives.WriteUInt16LittleEndian(section[6..], 0);
-        var offset = FaceSectionLength;
-        foreach (var face in faces[..value.Count])
+        if (header.Motion.HasValue)
         {
-            BinaryPrimitives.WriteSingleLittleEndian(section[offset..], face.Left);
-            BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 4)..], face.Top);
-            BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 8)..], face.Right);
-            BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 12)..], face.Bottom);
-            BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 16)..], face.Confidence);
-            offset += FaceLength;
+            length += MotionSectionLength;
+        }
+
+        return length;
+    }
+
+    // The destination length must be GetHeaderLength
+    public static void WriteHeader(Span<byte> destination, in FrameHeader header)
+    {
+        var flags = (header.Detection.HasValue ? FaceSectionFlag : 0) | (header.Motion.HasValue ? MotionSectionFlag : 0);
+        BinaryPrimitives.WriteUInt16LittleEndian(destination, HeaderVersion);
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[2..], (ushort)destination.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[4..], (ushort)header.Width);
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[6..], (ushort)header.Height);
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[8..], (uint)header.Sequence);
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[12..], flags);
+        BinaryPrimitives.WriteDoubleLittleEndian(destination[16..], header.CaptureTime);
+        BinaryPrimitives.WriteDoubleLittleEndian(destination[24..], header.EncodedTime);
+
+        var section = destination[BaseHeaderLength..];
+        if (header.Detection is { } detection)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(section, (uint)detection.Sequence);
+            BinaryPrimitives.WriteUInt16LittleEndian(section[4..], (ushort)detection.Count);
+            BinaryPrimitives.WriteUInt16LittleEndian(section[6..], 0);
+            var offset = FaceSectionLength;
+            foreach (var face in header.Faces[..detection.Count])
+            {
+                BinaryPrimitives.WriteSingleLittleEndian(section[offset..], face.Left);
+                BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 4)..], face.Top);
+                BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 8)..], face.Right);
+                BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 12)..], face.Bottom);
+                BinaryPrimitives.WriteSingleLittleEndian(section[(offset + 16)..], face.Confidence);
+                offset += FaceLength;
+            }
+
+            section = section[offset..];
+        }
+
+        if (header.Motion is { } motion)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(section, (uint)motion.Sequence);
+            BinaryPrimitives.WriteUInt16LittleEndian(section[4..], (ushort)motion.Cells);
+            section[6] = MotionDetector.Columns;
+            section[7] = MotionDetector.Rows;
+            header.MotionMask[..MotionDetector.MaskLength].CopyTo(section[8..]);
         }
     }
 
@@ -76,25 +110,45 @@ public static class StreamProtocol
     // MJPEG
     //--------------------------------------------------------------------------------
 
+    // A browser displays a part when the header of the next part arrives, so the boundary and the next header
+    // are written right after each JPEG (otherwise every frame is displayed one frame late).
+    // The parts have no Content-Length because the next JPEG is not encoded yet.
     public const string Boundary = "frame";
 
     public const string MjpegContentType = "multipart/x-mixed-replace; boundary=" + Boundary;
 
-    private static readonly byte[] PartHeaderPrefix = Encoding.ASCII.GetBytes($"--{Boundary}\r\nContent-Type: image/jpeg\r\nContent-Length: ");
+    // CRLF + boundary + part header
+    private static readonly byte[] PartDelimiter = Encoding.ASCII.GetBytes($"\r\n--{Boundary}\r\nContent-Type: image/jpeg\r\n\r\n");
 
-    public static ReadOnlySpan<byte> PartTrailer => "\r\n"u8;
+    // Before the first JPEG
+    public static ReadOnlySpan<byte> FirstPartHeader => PartDelimiter.AsSpan(2);
 
-    public static int WritePartHeader(Span<byte> destination, int length)
-    {
-        PartHeaderPrefix.CopyTo(destination);
-        var written = PartHeaderPrefix.Length;
-        if (!length.TryFormat(destination[written..], out var digits, default, CultureInfo.InvariantCulture))
-        {
-            throw new ArgumentException("Destination is too small.", nameof(destination));
-        }
+    // After each JPEG: ends the part and starts the next one
+    public static ReadOnlySpan<byte> NextPartHeader => PartDelimiter;
+}
 
-        written += digits;
-        "\r\n\r\n"u8.CopyTo(destination[written..]);
-        return written + 4;
-    }
+// Contents of the WebSocket header
+public readonly ref struct FrameHeader
+{
+    public int Width { get; init; }
+
+    public int Height { get; init; }
+
+    public long Sequence { get; init; }
+
+    // Unix ms
+    public double CaptureTime { get; init; }
+
+    // Unix ms
+    public double EncodedTime { get; init; }
+
+    // Face section (null: face detection is disabled)
+    public FaceDetectionInfo? Detection { get; init; }
+
+    public ReadOnlySpan<FaceBox> Faces { get; init; }
+
+    // Motion section (null: motion detection is disabled)
+    public MotionInfo? Motion { get; init; }
+
+    public ReadOnlySpan<byte> MotionMask { get; init; }
 }

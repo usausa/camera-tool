@@ -64,10 +64,30 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Error, Message = "Face detector load failed. model=[{model}]")]
     public static partial void ErrorFaceDetectorLoadFailed(this ILogger logger, Exception ex, string model);
 
+    // Area
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Area loaded. path=[{path}], cells=[{cells}]")]
+    public static partial void InfoAreaLoaded(this ILogger logger, string path, int cells);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Area file is invalid. path=[{path}]")]
+    public static partial void WarnAreaInvalid(this ILogger logger, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Area load failed. path=[{path}]")]
+    public static partial void WarnAreaLoadFailed(this ILogger logger, Exception ex, string path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Area saved. path=[{path}], cells=[{cells}]")]
+    public static partial void InfoAreaSaved(this ILogger logger, string path, int cells);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Area save failed. path=[{path}]")]
+    public static partial void ErrorAreaSaveFailed(this ILogger logger, Exception ex, string path);
+
     // Statistics
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Detection: enabled=[{enabled}], detect=[{detectFps:F1}], preprocess=[{preprocessTime:F3}/{preprocessTimeMax:F3}], inference=[{inferenceTime:F2}/{inferenceTimeMax:F2}], faces=[{faces}]")]
     public static partial void DebugDetectionStatistics(this ILogger logger, bool enabled, double detectFps, double preprocessTime, double preprocessTimeMax, double inferenceTime, double inferenceTimeMax, int faces);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Motion: enabled=[{enabled}], gate=[{gate}], status=[{status}], level=[{level:F1}], time=[{time:F3}/{timeMax:F3}]")]
+    public static partial void DebugMotionStatistics(this ILogger logger, bool enabled, bool gate, string status, double level, double time, double timeMax);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Statistics: format=[{format}], output=[{output}], update=[{update}], capture=[{captureFps:F1}], display=[{displayFps:F1}], captureLatency=[{captureLatency:F2}/{captureLatencyMax:F2}], process=[{processTime:F3}/{processTimeMax:F3}], displayLatency=[{displayLatency:F2}/{displayLatencyMax:F2}], cpu=[{cpuUsage:F2}], allocated=[{allocated:F1}], gc=[{gc0:F1}/{gc1:F1}/{gc2:F1}]")]
     public static partial void DebugStatistics(

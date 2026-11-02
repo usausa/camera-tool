@@ -81,6 +81,11 @@
             <Grid>
                 <controls:VideoView Source="{Binding Frames}"
                                     UpdateMode="{Binding SelectedUpdateMode}" />
+                <controls:AreaOverlay Source="{Binding Area}"
+                                      IsEditing="{Binding IsAreaEditing}"
+                                      FrameWidth="{Binding FrameWidth}"
+                                      FrameHeight="{Binding FrameHeight}" />
+                <controls:MotionOverlay Source="{Binding Motion}" />
                 <controls:FaceBoxOverlay Source="{Binding FaceDetection}" />
             </Grid>
         </Border>
@@ -132,6 +137,20 @@
                            Text="Detection" />
                 <CheckBox Content="Face detection"
                           IsChecked="{Binding IsDetectionEnabled}" />
+                <CheckBox Content="Motion detection"
+                          IsChecked="{Binding IsMotionEnabled}" />
+                <CheckBox Content="Detect only on motion"
+                          IsEnabled="{Binding IsMotionEnabled}"
+                          IsChecked="{Binding IsMotionGateEnabled}" />
+                <CheckBox Content="Edit area"
+                          IsEnabled="{Binding IsRunning}"
+                          IsChecked="{Binding IsAreaEditing}" />
+                <StackPanel Margin="0,8,0,0"
+                            Orientation="Horizontal">
+                    <Button Style="{StaticResource PanelButton}"
+                            Command="{Binding ResetAreaCommand}"
+                            Content="Reset area" />
+                </StackPanel>
                 <TextBlock Style="{StaticResource ErrorTextBlock}"
                            Text="{Binding DetectionError}" />
 
@@ -144,6 +163,9 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -294,6 +316,39 @@
                     <TextBlock Grid.Row="13" Grid.Column="1"
                                Style="{StaticResource StatisticsValueTextBlock}"
                                Text="{Binding FaceCount}" />
+
+                    <TextBlock Grid.Row="14" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Motion" />
+                    <TextBlock Grid.Row="14" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0} {1:F1} %">
+                                <Binding Path="MotionStatus" />
+                                <Binding Path="MotionLevel" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+
+                    <TextBlock Grid.Row="15" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Motion time" />
+                    <TextBlock Grid.Row="15" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
+                                <Binding Path="MotionTime" />
+                                <Binding Path="MotionTimeMax" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+
+                    <TextBlock Grid.Row="16" Grid.Column="0"
+                               Style="{StaticResource StatisticsLabelTextBlock}"
+                               Text="Area" />
+                    <TextBlock Grid.Row="16" Grid.Column="1"
+                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Text="{Binding AreaStatus}" />
                 </Grid>
 
                 <TextBlock Style="{StaticResource StatisticsNoteTextBlock}"

@@ -7,6 +7,7 @@ using CameraTool.Capture;
 using CameraTool.FaceViewer.Components;
 using CameraTool.FaceViewer.Controls;
 using CameraTool.FaceViewer.Settings;
+using CameraTool.Vision;
 
 // ReSharper disable once ClassNeverInstantiated.Global
 [ObservableGeneratorOption(Reactive = true, ViewModel = true)]
@@ -16,6 +17,14 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
 
     private const int StatisticsLogInterval = 5;
 
+    private const string MotionOff = "Off";
+
+    private const string MotionMoving = "Moving";
+
+    private const string MotionStill = "Still";
+
+    private const string AreaFull = "Full";
+
     private static readonly TimeSpan StatisticsInterval = TimeSpan.FromSeconds(1);
 
     private readonly ILogger<MainWindowViewModel> log;
@@ -23,6 +32,8 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     private readonly TimeProvider timeProvider;
 
     private readonly VideoSource videoSource;
+
+    private readonly TimeSpan motionHoldTime;
 
     private readonly Dispatcher dispatcher;
 
@@ -51,6 +62,10 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     public FrameStore Frames => videoSource.Frames;
 
     public FaceDetectionService FaceDetection { get; }
+
+    public MotionService Motion { get; }
+
+    public AreaService Area { get; }
 
     public IReadOnlyList<FrameConversion> Conversions { get; } = Enum.GetValues<FrameConversion>();
 
@@ -85,6 +100,13 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
 
     [ObservableProperty]
     public partial string? ErrorMessage { get; set; }
+
+    // Size of the running frames (0 while stopped)
+    [ObservableProperty]
+    public partial int FrameWidth { get; set; }
+
+    [ObservableProperty]
+    public partial int FrameHeight { get; set; }
 
     [ObservableProperty]
     public partial double CaptureFps { get; set; }
@@ -149,31 +171,66 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     [ObservableProperty]
     public partial int FaceCount { get; set; }
 
+    [ObservableProperty]
+    public partial bool IsMotionEnabled { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsMotionGateEnabled { get; set; }
+
+    [ObservableProperty]
+    public partial string MotionStatus { get; set; } = MotionOff;
+
+    [ObservableProperty]
+    public partial double MotionLevel { get; set; }
+
+    [ObservableProperty]
+    public partial double MotionTime { get; set; }
+
+    [ObservableProperty]
+    public partial double MotionTimeMax { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsAreaEditing { get; set; }
+
+    [ObservableProperty]
+    public partial string AreaStatus { get; set; } = AreaFull;
+
     public IObserveCommand StartCommand { get; }
 
     public IObserveCommand StopCommand { get; }
 
     public IObserveCommand RefreshCommand { get; }
 
+    public IObserveCommand ResetAreaCommand { get; }
+
     public MainWindowViewModel(
         ILogger<MainWindowViewModel> log,
         TimeProvider timeProvider,
         DisplaySettings displaySettings,
+        DetectSettings detectSettings,
         VideoSource videoSource,
-        FaceDetectionService faceDetection)
+        FaceDetectionService faceDetection,
+        MotionService motion,
+        AreaService area)
     {
         this.log = log;
         this.timeProvider = timeProvider;
         this.videoSource = videoSource;
+        motionHoldTime = TimeSpan.FromMilliseconds(detectSettings.MotionHoldTime);
         FaceDetection = faceDetection;
+        Motion = motion;
+        Area = area;
         dispatcher = Application.Current.Dispatcher;
         SelectedConversion = videoSource.Conversion;
         SelectedUpdateMode = displaySettings.UpdateMode;
         IsDetectionEnabled = faceDetection.IsEnabled;
+        IsMotionEnabled = motion.IsEnabled;
+        IsMotionGateEnabled = faceDetection.IsMotionGateEnabled;
 
         StartCommand = MakeAsyncCommand(StartAsync, () => !IsRunning && (SelectedDevice is not null) && (SelectedFormat is not null));
         StopCommand = MakeAsyncCommand(videoSource.StopCaptureAsync, () => IsRunning);
         RefreshCommand = MakeAsyncCommand(videoSource.RefreshAsync, () => !IsRunning);
+        ResetAreaCommand = MakeDelegateCommand(ResetArea);
 
         SubscribeSelectedDevice(x =>
         {
@@ -181,8 +238,11 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
             SelectedFormat = x is null ? null : videoSource.FindPreferredFormat(x);
         });
         SubscribeIsDetectionEnabled(x => faceDetection.IsEnabled = x);
+        SubscribeIsMotionEnabled(x => motion.IsEnabled = x);
+        SubscribeIsMotionGateEnabled(x => faceDetection.IsMotionGateEnabled = x);
 
         videoSource.StateChanged += OnStateChanged;
+        area.Changed += OnAreaChanged;
 
         statisticsTimer = new DispatcherTimer { Interval = StatisticsInterval };
         statisticsTimer.Tick += OnStatisticsTick;
@@ -190,6 +250,7 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         statisticsTimer.Start();
 
         ApplyState();
+        UpdateAreaStatus();
     }
 
     protected override void Dispose(bool disposing)
@@ -199,6 +260,7 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
             statisticsTimer.Stop();
             statisticsTimer.Tick -= OnStatisticsTick;
             videoSource.StateChanged -= OnStateChanged;
+            Area.Changed -= OnAreaChanged;
         }
 
         base.Dispose(disposing);
@@ -210,6 +272,12 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
 
     private Task StartAsync() =>
         (SelectedDevice is { } device) && (SelectedFormat is { } format) ? videoSource.StartCaptureAsync(device, format, SelectedConversion) : Task.CompletedTask;
+
+    private void ResetArea()
+    {
+        Area.Update(DetectionArea.Full);
+        Area.Save();
+    }
 
     //--------------------------------------------------------------------------------
     // State
@@ -237,15 +305,33 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
             SelectedConversion = videoSource.Conversion;
             RunningFormat = format.ToString();
             RunningOutput = String.Create(CultureInfo.InvariantCulture, $"{videoSource.Output.ToString().ToUpperInvariant()} ({videoSource.Conversion})");
+            FrameWidth = format.Width;
+            FrameHeight = format.Height;
         }
         else
         {
             RunningFormat = null;
             RunningOutput = null;
+            FrameWidth = 0;
+            FrameHeight = 0;
+            IsAreaEditing = false;
         }
 
         IsRunning = videoSource.IsRunning;
         ErrorMessage = videoSource.ErrorMessage;
+    }
+
+    //--------------------------------------------------------------------------------
+    // Area
+    //--------------------------------------------------------------------------------
+
+    // UI thread
+    private void OnAreaChanged(object? sender, EventArgs e) => UpdateAreaStatus();
+
+    private void UpdateAreaStatus()
+    {
+        var current = Area.Current;
+        AreaStatus = current.IsFull ? AreaFull : String.Create(CultureInfo.InvariantCulture, $"{current.CellCount} / {MotionDetector.CellCount} cells");
     }
 
     //--------------------------------------------------------------------------------
@@ -300,6 +386,12 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         FaceCount = FaceDetection.FaceCount;
         DetectionError = FaceDetection.ErrorMessage;
 
+        MotionStatus = !Motion.IsEnabled ? MotionOff : Motion.IsMoving(motionHoldTime) ? MotionMoving : MotionStill;
+        MotionLevel = Motion.Info.Level * 100;
+        var motionTime = Motion.TakeProcessTime();
+        MotionTime = motionTime.Average.TotalMilliseconds;
+        MotionTimeMax = motionTime.Max.TotalMilliseconds;
+
         var processorTime = GetProcessorTime();
         CpuUsage = (processorTime - lastProcessorTime).TotalSeconds / elapsed / Environment.ProcessorCount * 100;
 
@@ -351,6 +443,13 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
                 InferenceTime,
                 InferenceTimeMax,
                 FaceCount);
+            log.DebugMotionStatistics(
+                IsMotionEnabled,
+                IsMotionGateEnabled,
+                MotionStatus,
+                MotionLevel,
+                MotionTime,
+                MotionTimeMax);
         }
     }
 
