@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Application/">
     <Project Path="src/CameraTool.FaceViewer/CameraTool.FaceViewer.csproj" />
+    <Project Path="src/CameraTool.WebStream/CameraTool.WebStream.csproj" />
   </Folder>
   <Folder Name="/Library/">
     <Project Path="src/CameraTool.Capture/CameraTool.Capture.csproj" />

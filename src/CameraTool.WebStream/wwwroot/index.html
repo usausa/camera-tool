@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CameraTool WebStream</title>
+    <link rel="stylesheet" href="app.css" />
+    <script type="module" src="app.js"></script>
+</head>
+<body>
+    <main class="layout">
+        <section class="video">
+            <canvas id="canvas"></canvas>
+            <img id="image" alt="MJPEG stream" hidden />
+        </section>
+        <aside class="panel">
+            <h2>Stream</h2>
+            <div class="modes">
+                <label><input type="radio" name="mode" value="ws" checked /> WebSocket</label>
+                <label><input type="radio" name="mode" value="mjpeg" /> MJPEG</label>
+            </div>
+            <label class="option"><input id="detection" type="checkbox" /> Face detection (WebSocket only)</label>
+            <p id="state" class="state">Connecting...</p>
+
+            <h2>Client</h2>
+            <dl id="client" class="stats"></dl>
+
+            <h2>Server</h2>
+            <dl id="server" class="stats"></dl>
+
+            <p class="note">Latency is measured against the browser clock, so it is valid only when the browser runs on the same PC as the server. "Draw" is the time drawImage is called, before the frame is composited.</p>
+        </aside>
+    </main>
+</body>
+</html>

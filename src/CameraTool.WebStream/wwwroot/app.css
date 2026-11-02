@@ -1,0 +1,103 @@
+:root {
+    color-scheme: dark;
+    --background: #1e1e1e;
+    --panel: #252526;
+    --text: #e0e0e0;
+    --muted: #9e9e9e;
+    --accent: #00e676;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    background: var(--background);
+    color: var(--text);
+    font-family: "Segoe UI", sans-serif;
+    font-size: 13px;
+}
+
+.layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    height: 100%;
+}
+
+.video {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    background: #000;
+}
+
+.video canvas,
+.video img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.panel {
+    padding: 0 16px 16px;
+    overflow-y: auto;
+    background: var(--panel);
+}
+
+.panel h2 {
+    margin: 16px 0 6px;
+    font-size: 14px;
+}
+
+.modes {
+    display: flex;
+    gap: 16px;
+}
+
+.option {
+    display: block;
+    margin-top: 8px;
+}
+
+.state {
+    margin: 8px 0 0;
+    color: var(--accent);
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 12px;
+    margin: 0;
+}
+
+.stats dt {
+    color: var(--muted);
+}
+
+.stats dd {
+    margin: 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.note {
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+@media (max-width: 800px) {
+    .layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: 60vh auto;
+    }
+}

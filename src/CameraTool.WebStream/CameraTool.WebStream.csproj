@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <CodeAnalysisRuleSet>..\..\Analyzers.ruleset</CodeAnalysisRuleSet>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Enrichers.Thread" Version="4.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CameraTool.Capture\CameraTool.Capture.csproj" />
+    <ProjectReference Include="..\CameraTool.Vision\CameraTool.Vision.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="System.ComponentModel.DataAnnotations" />
+    <Using Include="System.Globalization" />
+    <Using Include="System.Runtime" />
+    <Using Include="Microsoft.Extensions.Options" />
+    <Using Include="CameraTool.WebStream.Application" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="appsettings.*.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\CameraTool.FaceViewer\version-RFB-320.onnx;..\CameraTool.FaceViewer\version-RFB-320-LICENSE.txt">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>
