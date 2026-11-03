@@ -1,9 +1,23 @@
 namespace CameraTool.WebStream.Components;
 
-// Milliseconds
-public readonly record struct LatencyValue(double Average, double Max)
+using CameraTool.Vision;
+
+// Statistics of the face or object detection (the same items for both)
+public sealed class DetectorStatus
 {
-    public static LatencyValue From(LatencySnapshot snapshot) => new(snapshot.Average.TotalMilliseconds, snapshot.Max.TotalMilliseconds);
+    public bool Enabled { get; init; }
+
+    // Set when the model cannot be loaded
+    public string? Error { get; init; }
+
+    public double Fps { get; init; }
+
+    public LatencyValue PreprocessTime { get; init; }
+
+    public LatencyValue InferenceTime { get; init; }
+
+    // Results of the latest detection
+    public int Count { get; init; }
 }
 
 public sealed class StreamStatus
@@ -89,17 +103,7 @@ public sealed class StreamStatus
 
     public int H264Buffers { get; init; }
 
-    public bool DetectionEnabled { get; init; }
-
-    public string? DetectionError { get; init; }
-
-    public double DetectFps { get; init; }
-
-    public LatencyValue PreprocessTime { get; init; }
-
-    public LatencyValue InferenceTime { get; init; }
-
-    public int Faces { get; init; }
+    public DetectorStatus Faces { get; init; } = new();
 
     public bool MotionEnabled { get; init; }
 
@@ -114,17 +118,7 @@ public sealed class StreamStatus
 
     public LatencyValue MotionTime { get; init; }
 
-    public bool ObjectEnabled { get; init; }
-
-    public string? ObjectError { get; init; }
-
-    public double ObjectFps { get; init; }
-
-    public LatencyValue ObjectPreprocessTime { get; init; }
-
-    public LatencyValue ObjectInferenceTime { get; init; }
-
-    public int Objects { get; init; }
+    public DetectorStatus Objects { get; init; } = new();
 
     // Incremented when the detection area changes
     public int AreaVersion { get; init; }

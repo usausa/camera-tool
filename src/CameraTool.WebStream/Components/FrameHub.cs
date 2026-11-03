@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks.Sources;
 
+using CameraTool.Vision;
+
 // Shares the latest encoded frame with all clients (latest only, no queue)
 public sealed class FrameHub
 {

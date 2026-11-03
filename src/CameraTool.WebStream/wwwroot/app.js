@@ -68,12 +68,12 @@ const motionGate = document.getElementById('motionGate');
 const areaEdit = document.getElementById('areaEdit');
 const areaReset = document.getElementById('areaReset');
 
-// Check boxes synced with the server
+// Check boxes synced with the server (status: reads the value from /api/status)
 const options = [
-    { element: detection, url: '/api/detection', key: 'enabled', status: 'detectionEnabled', syncTime: 0 },
-    { element: objectDetection, url: '/api/objects', key: 'enabled', status: 'objectEnabled', syncTime: 0 },
-    { element: motionDetection, url: '/api/motion', key: 'enabled', status: 'motionEnabled', syncTime: 0 },
-    { element: motionGate, url: '/api/detection', key: 'motionGate', status: 'motionGate', syncTime: 0 }
+    { element: detection, url: '/api/detection', key: 'enabled', status: (s) => s.faces.enabled, syncTime: 0 },
+    { element: objectDetection, url: '/api/objects', key: 'enabled', status: (s) => s.objects.enabled, syncTime: 0 },
+    { element: motionDetection, url: '/api/motion', key: 'enabled', status: (s) => s.motionEnabled, syncTime: 0 },
+    { element: motionGate, url: '/api/detection', key: 'motionGate', status: (s) => s.motionGate, syncTime: 0 }
 ];
 
 // Unix time in milliseconds with sub-millisecond resolution
@@ -171,6 +171,15 @@ const clientRows = createRows('client', [
     ['objects', 'Objects']
 ]);
 
+// Rows of the face or object detection (the same items in /api/status)
+const detectorRows = (key, labels) => [
+    [`${key}State`, labels[0]],
+    [`${key}Fps`, labels[1]],
+    [`${key}Preprocess`, labels[2]],
+    [`${key}Inference`, labels[3]],
+    [`${key}Count`, labels[4]]
+];
+
 const serverRows = createRows('server', [
     ['camera', 'Camera'],
     ['format', 'Format'],
@@ -201,18 +210,10 @@ const serverRows = createRows('server', [
     ['h264SentLatency', 'H.264 publish → sent'],
     ['h264Bitrate', 'H.264 bitrate'],
     ['h264Buffers', 'H.264 buffers'],
-    ['detection', 'Detection'],
-    ['detect', 'Detect'],
-    ['preprocessTime', 'Preprocess'],
-    ['inferenceTime', 'Inference'],
-    ['faces', 'Faces'],
+    ...detectorRows('faces', ['Detection', 'Detect', 'Preprocess', 'Inference', 'Faces']),
     ['motion', 'Motion'],
     ['motionTime', 'Motion time'],
-    ['objectDetection', 'Object detection'],
-    ['objectDetect', 'Object detect'],
-    ['objectPreprocess', 'Object preprocess'],
-    ['objectInference', 'Object inference'],
-    ['objects', 'Objects'],
+    ...detectorRows('objects', ['Object detection', 'Object detect', 'Object preprocess', 'Object inference', 'Objects']),
     ['area', 'Area'],
     ['cpu', 'CPU'],
     ['allocated', 'Allocated'],
@@ -314,18 +315,10 @@ async function updateServerStats() {
     serverRows.h264Buffers.textContent = `${status.h264Buffers}`;
     // The gate works only while the motion detection is on
     const gated = status.motionGate && status.motionEnabled;
-    serverRows.detection.textContent = status.detectionError ?? (status.detectionEnabled ? (gated ? 'On (on motion)' : 'On') : 'Off');
-    serverRows.detect.textContent = formatFps(status.detectFps);
-    serverRows.preprocessTime.textContent = formatTime(status.preprocessTime, 3);
-    serverRows.inferenceTime.textContent = formatTime(status.inferenceTime);
-    serverRows.faces.textContent = `${status.faces}`;
+    showDetector('faces', status.faces, gated);
     serverRows.motion.textContent = status.motionEnabled ? `${status.moving ? 'Moving' : 'Still'} ${status.motionLevel.toFixed(1)} %` : 'Off';
     serverRows.motionTime.textContent = formatTime(status.motionTime, 3);
-    serverRows.objectDetection.textContent = status.objectError ?? (status.objectEnabled ? (gated ? 'On (on motion)' : 'On') : 'Off');
-    serverRows.objectDetect.textContent = formatFps(status.objectFps);
-    serverRows.objectPreprocess.textContent = formatTime(status.objectPreprocessTime, 3);
-    serverRows.objectInference.textContent = formatTime(status.objectInferenceTime);
-    serverRows.objects.textContent = `${status.objects}`;
+    showDetector('objects', status.objects, gated);
     const totalCells = area.columns * area.rows;
     serverRows.area.textContent = status.areaCells === totalCells ? 'Full' : `${status.areaCells} / ${totalCells} cells`;
     serverRows.cpu.textContent = `${status.cpuUsage.toFixed(2)} %`;
@@ -340,6 +333,15 @@ async function updateServerStats() {
     }
 }
 
+// key: of detectorRows, detector: faces or objects of /api/status
+function showDetector(key, detector, gated) {
+    serverRows[`${key}State`].textContent = detector.error ?? (detector.enabled ? (gated ? 'On (on motion)' : 'On') : 'Off');
+    serverRows[`${key}Fps`].textContent = formatFps(detector.fps);
+    serverRows[`${key}Preprocess`].textContent = formatTime(detector.preprocessTime, 3);
+    serverRows[`${key}Inference`].textContent = formatTime(detector.inferenceTime);
+    serverRows[`${key}Count`].textContent = `${detector.count}`;
+}
+
 //--------------------------------------------------------------------------------
 // Options
 //--------------------------------------------------------------------------------
@@ -349,7 +351,7 @@ function syncOptions(status) {
     const time = now();
     for (const option of options) {
         if (time > option.syncTime) {
-            option.element.checked = status[option.status];
+            option.element.checked = option.status(status);
         }
     }
     updateOptionState();

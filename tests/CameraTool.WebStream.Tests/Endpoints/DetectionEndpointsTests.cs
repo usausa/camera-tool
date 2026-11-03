@@ -4,7 +4,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
-using CameraTool.WebStream.Components;
+using CameraTool.Vision;
 
 public sealed class DetectionEndpointsTests
 {
@@ -65,7 +65,7 @@ public sealed class DetectionEndpointsTests
             var area = CreateArea(Columns, Rows, new string('0', Columns / 2) + new string('1', Columns / 2));
 
             // Act
-            using var content = JsonContent.Create(area, ApiJsonContext.Default.AreaData);
+            using var content = JsonContent.Create(area, ApiJsonContext.Default.DetectionAreaData);
             using var response = await server.Client.PutAsync(new Uri("/api/area", UriKind.Relative), content, cancellationToken).ConfigureAwait(true);
             var problem = JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(true));
             var used = await server.GetJsonAsync("/api/area", cancellationToken).ConfigureAwait(true);
@@ -89,14 +89,14 @@ public sealed class DetectionEndpointsTests
             var motion = await server.PutJsonAsync("/api/motion", """{"enabled":false}""", cancellationToken).ConfigureAwait(true);
             var objects = await server.PutJsonAsync("/api/objects", """{"enabled":true}""", cancellationToken).ConfigureAwait(true);
             var status = await server.WaitForStatusAsync(
-                static x => x.GetProperty("detectionEnabled").GetBoolean() && x.GetProperty("motionGate").GetBoolean() && !x.GetProperty("motionEnabled").GetBoolean() && x.GetProperty("objectEnabled").GetBoolean(),
+                static x => x.GetProperty("faces").GetProperty("enabled").GetBoolean() && x.GetProperty("motionGate").GetBoolean() && !x.GetProperty("motionEnabled").GetBoolean() && x.GetProperty("objects").GetProperty("enabled").GetBoolean(),
                 cancellationToken).ConfigureAwait(true);
 
             // Assert (the status shows all the changes)
             Assert.Equal(HttpStatusCode.NoContent, detection);
             Assert.Equal(HttpStatusCode.NoContent, motion);
             Assert.Equal(HttpStatusCode.NoContent, objects);
-            Assert.True(status.GetProperty("objectEnabled").GetBoolean());
+            Assert.True(status.GetProperty("objects").GetProperty("enabled").GetBoolean());
         });
 
     [Fact]
@@ -118,12 +118,12 @@ public sealed class DetectionEndpointsTests
     // Helper
     //--------------------------------------------------------------------------------
 
-    private static AreaData CreateArea(int columns, int rows, string row) =>
+    private static DetectionAreaData CreateArea(int columns, int rows, string row) =>
         new() { Columns = columns, Rows = rows, Cells = Enumerable.Repeat(row, rows).ToArray() };
 
-    private static async Task<HttpStatusCode> PutAreaAsync(StreamTestServer server, AreaData area, CancellationToken cancellationToken)
+    private static async Task<HttpStatusCode> PutAreaAsync(StreamTestServer server, DetectionAreaData area, CancellationToken cancellationToken)
     {
-        using var content = JsonContent.Create(area, ApiJsonContext.Default.AreaData);
+        using var content = JsonContent.Create(area, ApiJsonContext.Default.DetectionAreaData);
         using var response = await server.Client.PutAsync(new Uri("/api/area", UriKind.Relative), content, cancellationToken).ConfigureAwait(true);
         return response.StatusCode;
     }

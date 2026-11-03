@@ -34,9 +34,9 @@ public sealed class FrameHeaderWriter
     public TimeSpan Write(EncodedFrame encoded, long index, in FrameHeaderInfo info, int dataLength)
     {
         // Latest detection results, detected in a previous frame
-        FaceDetectionInfo? detected = detection.IsEnabled && detection.IsAvailable ? detection.CopyResults(faces) : null;
+        DetectionInfo? detected = detection.IsEnabled && detection.IsAvailable ? detection.CopyResults(faces) : null;
         MotionInfo? moved = motion.IsEnabled ? motion.CopyResults(motionMask) : null;
-        ObjectDetectionInfo? found = objectDetection.IsEnabled && objectDetection.IsAvailable ? objectDetection.CopyResults(objects) : null;
+        DetectionInfo? found = objectDetection.IsEnabled && objectDetection.IsAvailable ? objectDetection.CopyResults(objects) : null;
 
         // Unix time of the capture, calculated from the capture clock
         var now = CaptureClock.Now;

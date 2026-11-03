@@ -3,6 +3,7 @@ namespace CameraTool.WebStream.Endpoints;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using CameraTool.Vision;
 using CameraTool.WebStream.Components;
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
@@ -11,5 +12,5 @@ using CameraTool.WebStream.Components;
 [JsonSerializable(typeof(MotionRequest))]
 [JsonSerializable(typeof(ObjectRequest))]
 [JsonSerializable(typeof(ObjectLabel[]))]
-[JsonSerializable(typeof(AreaData))]
+[JsonSerializable(typeof(DetectionAreaData))]
 public sealed partial class ApiJsonContext : JsonSerializerContext;

@@ -199,7 +199,7 @@ public readonly ref struct FrameHeader
     public bool FullRange { get; init; }
 
     // Face section (null: face detection is disabled)
-    public FaceDetectionInfo? Detection { get; init; }
+    public DetectionInfo? Detection { get; init; }
 
     public ReadOnlySpan<FaceBox> Faces { get; init; }
 
@@ -209,7 +209,7 @@ public readonly ref struct FrameHeader
     public ReadOnlySpan<byte> MotionMask { get; init; }
 
     // Object section (null: object detection is disabled)
-    public ObjectDetectionInfo? ObjectDetection { get; init; }
+    public DetectionInfo? ObjectDetection { get; init; }
 
     public ReadOnlySpan<ObjectBox> Objects { get; init; }
 }

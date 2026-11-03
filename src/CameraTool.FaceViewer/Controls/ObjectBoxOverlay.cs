@@ -41,7 +41,7 @@ public sealed partial class ObjectBoxOverlay : FrameworkElement
 
     private ObjectDetectionService? attachedSource;
 
-    private ObjectDetectionInfo info;
+    private DetectionInfo info;
 
     [DependencyProperty(PropertyChanged = nameof(OnSourceChanged))]
     public partial ObjectDetectionService? Source { get; set; }

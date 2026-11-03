@@ -66,11 +66,12 @@
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
         </Style>
 
-        <Style x:Key="StatisticsValueTextBlock"
-               TargetType="{x:Type TextBlock}">
+        <!-- ValueText (redrawn every second without the text layout of TextBlock), or TextBlock for a value that wraps -->
+        <Style x:Key="StatisticsValue"
+               TargetType="{x:Type FrameworkElement}">
             <Setter Property="Margin" Value="0,1,0,1" />
             <Setter Property="HorizontalAlignment" Value="Right" />
-            <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
+            <Setter Property="TextElement.FontFamily" Value="Cascadia Mono, Consolas" />
         </Style>
 
         <!-- Next to the header -->
@@ -196,9 +197,9 @@
                             Content="Reset area" />
                 </Grid>
                 <TextBlock Style="{StaticResource ErrorTextBlock}"
-                           Text="{Binding DetectionError}" />
+                           Text="{Binding FaceStatistics.Error}" />
                 <TextBlock Style="{StaticResource ErrorTextBlock}"
-                           Text="{Binding ObjectError}" />
+                           Text="{Binding ObjectStatistics.Error}" />
                 <TextBlock Style="{StaticResource ErrorTextBlock}"
                            Text="{Binding AreaError}" />
 
@@ -241,211 +242,163 @@
                     <TextBlock Grid.Row="0" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Format" />
-                    <TextBlock Grid.Row="0" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
-                               Text="{Binding RunningFormat, TargetNullValue='-'}" />
+                    <controls:ValueText Grid.Row="0" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding RunningFormat, TargetNullValue='-'}" />
 
                     <TextBlock Grid.Row="1" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Output" />
-                    <TextBlock Grid.Row="1" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
-                               Text="{Binding RunningOutput, TargetNullValue='-'}" />
+                    <controls:ValueText Grid.Row="1" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding RunningOutput, TargetNullValue='-'}" />
 
                     <TextBlock Grid.Row="2" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Capture" />
-                    <TextBlock Grid.Row="2" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
-                               Text="{Binding CaptureFps, StringFormat={}{0:F1} fps}" />
+                    <controls:ValueText Grid.Row="2" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding CaptureFps, StringFormat={}{0:F1} fps}" />
 
                     <TextBlock Grid.Row="3" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Display" />
-                    <TextBlock Grid.Row="3" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
-                               Text="{Binding DisplayFps, StringFormat={}{0:F1} fps}" />
+                    <controls:ValueText Grid.Row="3" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding DisplayFps, StringFormat={}{0:F1} fps}" />
 
                     <TextBlock Grid.Row="4" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Capture latency" />
-                    <TextBlock Grid.Row="4" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0:F1} / {1:F1} ms">
-                                <Binding Path="CaptureLatency" />
-                                <Binding Path="CaptureLatencyMax" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                    <controls:ValueText Grid.Row="4" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding CaptureLatency, StringFormat={}{0:F1} ms}" />
 
                     <TextBlock Grid.Row="5" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Process" />
-                    <TextBlock Grid.Row="5" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
-                                <Binding Path="ProcessTime" />
-                                <Binding Path="ProcessTimeMax" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                    <controls:ValueText Grid.Row="5" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding ProcessTime, StringFormat={}{0:F2} ms}" />
 
                     <TextBlock Grid.Row="6" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Display latency" />
-                    <TextBlock Grid.Row="6" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0:F1} / {1:F1} ms">
-                                <Binding Path="DisplayLatency" />
-                                <Binding Path="DisplayLatencyMax" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                    <controls:ValueText Grid.Row="6" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding DisplayLatency, StringFormat={}{0:F1} ms}" />
 
                     <TextBlock Grid.Row="7" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="CPU" />
-                    <TextBlock Grid.Row="7" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
-                               Text="{Binding CpuUsage, StringFormat={}{0:F1} %}" />
+                    <controls:ValueText Grid.Row="7" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding CpuUsage, StringFormat={}{0:F1} %}" />
 
                     <TextBlock Grid.Row="8" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Allocated" />
-                    <TextBlock Grid.Row="8" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
-                               Text="{Binding AllocatedPerSec, StringFormat={}{0:F1} KB/s}" />
+                    <controls:ValueText Grid.Row="8" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding AllocatedPerSec, StringFormat={}{0:F1} KB/s}" />
 
                     <TextBlock Grid.Row="9" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="GC 0/1/2" />
-                    <TextBlock Grid.Row="9" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}">
-                        <TextBlock.Text>
+                    <controls:ValueText Grid.Row="9" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}">
+                        <controls:ValueText.Text>
                             <MultiBinding StringFormat="{}{0:F1} / {1:F1} / {2:F1} /s">
                                 <Binding Path="Gc0PerSec" />
                                 <Binding Path="Gc1PerSec" />
                                 <Binding Path="Gc2PerSec" />
                             </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                        </controls:ValueText.Text>
+                    </controls:ValueText>
 
                     <TextBlock Grid.Row="10" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Detect" />
-                    <TextBlock Grid.Row="10" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
-                               Text="{Binding DetectFps, StringFormat={}{0:F1} fps}" />
+                    <controls:ValueText Grid.Row="10" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding FaceStatistics.Fps, StringFormat={}{0:F1} fps}" />
 
                     <TextBlock Grid.Row="11" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Preprocess" />
-                    <TextBlock Grid.Row="11" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
-                                <Binding Path="PreprocessTime" />
-                                <Binding Path="PreprocessTimeMax" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                    <controls:ValueText Grid.Row="11" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding FaceStatistics.PreprocessTime, StringFormat={}{0:F2} ms}" />
 
                     <TextBlock Grid.Row="12" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Inference" />
-                    <TextBlock Grid.Row="12" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
-                                <Binding Path="InferenceTime" />
-                                <Binding Path="InferenceTimeMax" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                    <controls:ValueText Grid.Row="12" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding FaceStatistics.InferenceTime, StringFormat={}{0:F2} ms}" />
 
                     <TextBlock Grid.Row="13" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Faces" />
-                    <TextBlock Grid.Row="13" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
-                               Text="{Binding FaceCount}" />
+                    <controls:ValueText Grid.Row="13" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding FaceStatistics.Results}" />
 
                     <TextBlock Grid.Row="14" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Motion" />
-                    <TextBlock Grid.Row="14" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}">
-                        <TextBlock.Text>
+                    <controls:ValueText Grid.Row="14" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}">
+                        <controls:ValueText.Text>
                             <MultiBinding StringFormat="{}{0} {1:F1} %">
                                 <Binding Path="MotionStatus" />
                                 <Binding Path="MotionLevel" />
                             </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                        </controls:ValueText.Text>
+                    </controls:ValueText>
 
                     <TextBlock Grid.Row="15" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Motion time" />
-                    <TextBlock Grid.Row="15" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
-                                <Binding Path="MotionTime" />
-                                <Binding Path="MotionTimeMax" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                    <controls:ValueText Grid.Row="15" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding MotionTime, StringFormat={}{0:F2} ms}" />
 
                     <TextBlock Grid.Row="16" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Area" />
-                    <TextBlock Grid.Row="16" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
-                               Text="{Binding AreaStatus}" />
+                    <controls:ValueText Grid.Row="16" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding AreaStatus}" />
 
                     <TextBlock Grid.Row="17" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Object detect" />
-                    <TextBlock Grid.Row="17" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
-                               Text="{Binding ObjectFps, StringFormat={}{0:F1} fps}" />
+                    <controls:ValueText Grid.Row="17" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding ObjectStatistics.Fps, StringFormat={}{0:F1} fps}" />
 
                     <TextBlock Grid.Row="18" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Object preprocess" />
-                    <TextBlock Grid.Row="18" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
-                                <Binding Path="ObjectPreprocessTime" />
-                                <Binding Path="ObjectPreprocessTimeMax" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                    <controls:ValueText Grid.Row="18" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding ObjectStatistics.PreprocessTime, StringFormat={}{0:F2} ms}" />
 
                     <TextBlock Grid.Row="19" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Object inference" />
-                    <TextBlock Grid.Row="19" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0:F2} / {1:F2} ms">
-                                <Binding Path="ObjectInferenceTime" />
-                                <Binding Path="ObjectInferenceTimeMax" />
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
+                    <controls:ValueText Grid.Row="19" Grid.Column="1"
+                                        Style="{StaticResource StatisticsValue}"
+                                        Text="{Binding ObjectStatistics.InferenceTime, StringFormat={}{0:F2} ms}" />
 
                     <TextBlock Grid.Row="20" Grid.Column="0"
                                Style="{StaticResource StatisticsLabelTextBlock}"
                                Text="Objects" />
                     <TextBlock Grid.Row="20" Grid.Column="1"
-                               Style="{StaticResource StatisticsValueTextBlock}"
+                               Style="{StaticResource StatisticsValue}"
                                TextWrapping="Wrap"
-                               Text="{Binding ObjectStatus}" />
+                               Text="{Binding ObjectStatistics.Results}" />
                 </Grid>
 
             </StackPanel>

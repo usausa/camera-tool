@@ -46,10 +46,6 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
 
     private long lastDisplayedFrames;
 
-    private long lastDetectedFrames;
-
-    private long lastObjectFrames;
-
     private TimeSpan lastProcessorTime;
 
     private long lastAllocatedBytes;
@@ -69,6 +65,10 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     public AreaService Area { get; }
 
     public ObjectDetectionService ObjectDetection { get; }
+
+    public DetectorStatistics FaceStatistics { get; } = new();
+
+    public DetectorStatistics ObjectStatistics { get; } = new();
 
     public IReadOnlyList<FrameConversion> Conversions { get; } = Enum.GetValues<FrameConversion>();
 
@@ -118,22 +118,13 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     public partial double DisplayFps { get; set; }
 
     [ObservableProperty]
-    public partial double CaptureLatency { get; set; }
+    public partial LatencyValue CaptureLatency { get; set; }
 
     [ObservableProperty]
-    public partial double CaptureLatencyMax { get; set; }
+    public partial LatencyValue ProcessTime { get; set; }
 
     [ObservableProperty]
-    public partial double ProcessTime { get; set; }
-
-    [ObservableProperty]
-    public partial double ProcessTimeMax { get; set; }
-
-    [ObservableProperty]
-    public partial double DisplayLatency { get; set; }
-
-    [ObservableProperty]
-    public partial double DisplayLatencyMax { get; set; }
+    public partial LatencyValue DisplayLatency { get; set; }
 
     [ObservableProperty]
     public partial double CpuUsage { get; set; }
@@ -154,27 +145,6 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     public partial bool IsDetectionEnabled { get; set; }
 
     [ObservableProperty]
-    public partial string? DetectionError { get; set; }
-
-    [ObservableProperty]
-    public partial double DetectFps { get; set; }
-
-    [ObservableProperty]
-    public partial double PreprocessTime { get; set; }
-
-    [ObservableProperty]
-    public partial double PreprocessTimeMax { get; set; }
-
-    [ObservableProperty]
-    public partial double InferenceTime { get; set; }
-
-    [ObservableProperty]
-    public partial double InferenceTimeMax { get; set; }
-
-    [ObservableProperty]
-    public partial int FaceCount { get; set; }
-
-    [ObservableProperty]
     public partial bool IsMotionEnabled { get; set; }
 
     [ObservableProperty]
@@ -187,38 +157,13 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
     public partial double MotionLevel { get; set; }
 
     [ObservableProperty]
-    public partial double MotionTime { get; set; }
-
-    [ObservableProperty]
-    public partial double MotionTimeMax { get; set; }
+    public partial LatencyValue MotionTime { get; set; }
 
     [ObservableProperty]
     public partial bool IsObjectDetectionEnabled { get; set; }
 
     [ObservableProperty]
-    public partial string? ObjectError { get; set; }
-
-    [ObservableProperty]
     public partial string? AreaError { get; set; }
-
-    [ObservableProperty]
-    public partial double ObjectFps { get; set; }
-
-    [ObservableProperty]
-    public partial double ObjectPreprocessTime { get; set; }
-
-    [ObservableProperty]
-    public partial double ObjectPreprocessTimeMax { get; set; }
-
-    [ObservableProperty]
-    public partial double ObjectInferenceTime { get; set; }
-
-    [ObservableProperty]
-    public partial double ObjectInferenceTimeMax { get; set; }
-
-    // Count and the count of each class
-    [ObservableProperty]
-    public partial string ObjectStatus { get; set; } = "0";
 
     [ObservableProperty]
     public partial bool IsAreaEditing { get; set; }
@@ -378,8 +323,8 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         lastStatisticsTimestamp = timeProvider.GetTimestamp();
         lastCapturedFrames = videoSource.CapturedFrames;
         lastDisplayedFrames = videoSource.Frames.DisplayedFrames;
-        lastDetectedFrames = FaceDetection.DetectedFrames;
-        lastObjectFrames = ObjectDetection.DetectedFrames;
+        FaceStatistics.Reset(FaceDetection);
+        ObjectStatistics.Reset(ObjectDetection);
         lastProcessorTime = Environment.CpuUsage.TotalTime;
         lastAllocatedBytes = GC.GetTotalAllocatedBytes();
         lastGc0Count = GC.CollectionCount(0);
@@ -401,43 +346,17 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         CaptureFps = (capturedFrames - lastCapturedFrames) / elapsed;
         DisplayFps = (displayedFrames - lastDisplayedFrames) / elapsed;
 
-        var capture = videoSource.TakeCaptureLatency();
-        CaptureLatency = capture.Average.TotalMilliseconds;
-        CaptureLatencyMax = capture.Max.TotalMilliseconds;
-        var process = videoSource.TakeProcessTime();
-        ProcessTime = process.Average.TotalMilliseconds;
-        ProcessTimeMax = process.Max.TotalMilliseconds;
-        var display = videoSource.Frames.TakeDisplayLatency();
-        DisplayLatency = display.Average.TotalMilliseconds;
-        DisplayLatencyMax = display.Max.TotalMilliseconds;
+        CaptureLatency = LatencyValue.From(videoSource.TakeCaptureLatency());
+        ProcessTime = LatencyValue.From(videoSource.TakeProcessTime());
+        DisplayLatency = LatencyValue.From(videoSource.Frames.TakeDisplayLatency());
 
-        var detectedFrames = FaceDetection.DetectedFrames;
-        DetectFps = (detectedFrames - lastDetectedFrames) / elapsed;
-        var preprocess = FaceDetection.TakePreprocessTime();
-        PreprocessTime = preprocess.Average.TotalMilliseconds;
-        PreprocessTimeMax = preprocess.Max.TotalMilliseconds;
-        var inference = FaceDetection.TakeInferenceTime();
-        InferenceTime = inference.Average.TotalMilliseconds;
-        InferenceTimeMax = inference.Max.TotalMilliseconds;
-        FaceCount = FaceDetection.FaceCount;
-        DetectionError = FaceDetection.ErrorMessage;
+        FaceStatistics.Update(FaceDetection, elapsed, FaceDetection.Count.ToString(CultureInfo.InvariantCulture));
 
         MotionStatus = !Motion.IsEnabled ? MotionOff : Motion.IsMoving ? MotionMoving : MotionStill;
         MotionLevel = Motion.Info.Level * 100;
-        var motionTime = Motion.TakeProcessTime();
-        MotionTime = motionTime.Average.TotalMilliseconds;
-        MotionTimeMax = motionTime.Max.TotalMilliseconds;
+        MotionTime = LatencyValue.From(Motion.TakeProcessTime());
 
-        var objectFrames = ObjectDetection.DetectedFrames;
-        ObjectFps = (objectFrames - lastObjectFrames) / elapsed;
-        var objectPreprocess = ObjectDetection.TakePreprocessTime();
-        ObjectPreprocessTime = objectPreprocess.Average.TotalMilliseconds;
-        ObjectPreprocessTimeMax = objectPreprocess.Max.TotalMilliseconds;
-        var objectInference = ObjectDetection.TakeInferenceTime();
-        ObjectInferenceTime = objectInference.Average.TotalMilliseconds;
-        ObjectInferenceTimeMax = objectInference.Max.TotalMilliseconds;
-        ObjectStatus = FormatObjects();
-        ObjectError = ObjectDetection.ErrorMessage;
+        ObjectStatistics.Update(ObjectDetection, elapsed, FormatObjects());
         AreaError = Area.ErrorMessage;
 
         // Without allocation, unlike Process.GetCurrentProcess
@@ -457,8 +376,6 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
         lastStatisticsTimestamp = timestamp;
         lastCapturedFrames = capturedFrames;
         lastDisplayedFrames = displayedFrames;
-        lastDetectedFrames = detectedFrames;
-        lastObjectFrames = objectFrames;
         lastProcessorTime = processorTime;
         lastAllocatedBytes = allocatedBytes;
         lastGc0Count = gc0Count;
@@ -474,42 +391,40 @@ public sealed partial class MainWindowViewModel : ExtendViewModelBase
                 SelectedUpdateMode.ToString(),
                 CaptureFps,
                 DisplayFps,
-                CaptureLatency,
-                CaptureLatencyMax,
-                ProcessTime,
-                ProcessTimeMax,
-                DisplayLatency,
-                DisplayLatencyMax,
+                CaptureLatency.Average,
+                CaptureLatency.Max,
+                ProcessTime.Average,
+                ProcessTime.Max,
+                DisplayLatency.Average,
+                DisplayLatency.Max,
                 CpuUsage,
                 AllocatedPerSec,
                 Gc0PerSec,
                 Gc1PerSec,
                 Gc2PerSec);
-            log.DebugDetectionStatistics(
-                IsDetectionEnabled,
-                DetectFps,
-                PreprocessTime,
-                PreprocessTimeMax,
-                InferenceTime,
-                InferenceTimeMax,
-                FaceCount);
+            WriteDetectorLog("Detection", "faces", IsDetectionEnabled, FaceStatistics);
             log.DebugMotionStatistics(
                 IsMotionEnabled,
                 IsMotionGateEnabled,
                 MotionStatus,
                 MotionLevel,
-                MotionTime,
-                MotionTimeMax);
-            log.DebugObjectStatistics(
-                IsObjectDetectionEnabled,
-                ObjectFps,
-                ObjectPreprocessTime,
-                ObjectPreprocessTimeMax,
-                ObjectInferenceTime,
-                ObjectInferenceTimeMax,
-                ObjectStatus);
+                MotionTime.Average,
+                MotionTime.Max);
+            WriteDetectorLog("Object", "objects", IsObjectDetectionEnabled, ObjectStatistics);
         }
     }
+
+    private void WriteDetectorLog(string name, string resultsName, bool enabled, DetectorStatistics statistics) =>
+        log.DebugDetectorStatistics(
+            name,
+            enabled,
+            statistics.Fps,
+            statistics.PreprocessTime.Average,
+            statistics.PreprocessTime.Max,
+            statistics.InferenceTime.Average,
+            statistics.InferenceTime.Max,
+            resultsName,
+            statistics.Results);
 
     // "3 (person 2, dog 1)", once a second
     private string FormatObjects()

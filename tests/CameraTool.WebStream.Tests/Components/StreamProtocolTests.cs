@@ -68,11 +68,11 @@ public sealed class StreamProtocolTests
             Width = 1280,
             Height = 720,
             Sequence = 10,
-            Detection = new FaceDetectionInfo(8, faces.Length),
+            Detection = new DetectionInfo(8, 1280, 720, faces.Length),
             Faces = faces,
             Motion = new MotionInfo(9, 0.5f, 2),
             MotionMask = mask,
-            ObjectDetection = new ObjectDetectionInfo(7, objects.Length),
+            ObjectDetection = new DetectionInfo(7, 1280, 720, objects.Length),
             Objects = objects
         };
 
@@ -117,7 +117,7 @@ public sealed class StreamProtocolTests
         var faces = new FaceBox[FaceDetectionService.MaxFaces];
         faces[0] = new FaceBox(0.1f, 0.1f, 0.2f, 0.2f, 0.9f);
         faces[1] = new FaceBox(0.3f, 0.3f, 0.4f, 0.4f, 0.8f);
-        var header = new FrameHeader { Detection = new FaceDetectionInfo(1, 1), Faces = faces };
+        var header = new FrameHeader { Detection = new DetectionInfo(1, 640, 480, 1), Faces = faces };
 
         // Act
         var bytes = Write(header);
@@ -134,11 +134,11 @@ public sealed class StreamProtocolTests
         // Arrange
         var header = new FrameHeader
         {
-            Detection = new FaceDetectionInfo(1, FaceDetectionService.MaxFaces),
+            Detection = new DetectionInfo(1, 640, 480, FaceDetectionService.MaxFaces),
             Faces = new FaceBox[FaceDetectionService.MaxFaces],
             Motion = new MotionInfo(1, 0f, 0),
             MotionMask = new byte[MotionDetector.MaskLength],
-            ObjectDetection = new ObjectDetectionInfo(1, ObjectDetectionService.MaxObjects),
+            ObjectDetection = new DetectionInfo(1, 640, 480, ObjectDetectionService.MaxObjects),
             Objects = new ObjectBox[ObjectDetectionService.MaxObjects]
         };
 

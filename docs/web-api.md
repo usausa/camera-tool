@@ -23,6 +23,8 @@ WebStream は `http://localhost:5080` で待ち受ける(⚠️ ローカル専�
 
 `/api/status` の `areaVersion` は、範囲が変わるたびに増える番号(サーバーを起動するたびに違う値から始まる)。ビューアーは番号が変わったら `GET /api/area` で取り直す。
 
+`/api/status` の顔検出と物体検知の値は、同じ形で `faces` と `objects` にまとまる: `enabled`、`error`(モデルを読めないとき)、`fps`(検出の回数)、`preprocessTime` / `inferenceTime`(`average` / `max`、ミリ秒)、`count`(直近の結果の数)。
+
 ## 📨 WebSocket のメッセージ
 
 `/ws` と `/ws-h264` は、バイナリの1メッセージが1フレーム(リトルエンディアン)。

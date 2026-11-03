@@ -6,7 +6,7 @@ using Microsoft.ML.OnnxRuntime;
 // Input pixel_values [1, 3, H, W]: RGB 0-1, stretched to the input size
 // Outputs logits [1, Q, 80] (before sigmoid) and pred_boxes [1, Q, 4] (normalized center x, center y, width, height)
 // Inputs and outputs are bound to pre-allocated buffers, so detection does not allocate
-public sealed class ObjectDetector : IDisposable
+public sealed class ObjectDetector : IDetector<ObjectBox>
 {
     private const string InputName = "pixel_values";
 

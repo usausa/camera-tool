@@ -9,8 +9,8 @@ public delegate void H264OutputCallback(ReadOnlySpan<byte> data, bool keyFrame, 
 
 // H.264 encoder of Media Foundation called through the COM vtable.
 // A hardware encoder (asynchronous MFT) is preferred, and the Microsoft software encoder (synchronous MFT) is the fallback.
-// Encode copies the frame to a pooled input sample on the caller thread, and a dedicated thread runs the encoder
-// and passes the output to the callback. When the encoder is busy, the latest frame replaces the waiting one.
+// Encode copies the frame (EncodeYuy2 converts it) to a pooled input sample on the caller thread, and a dedicated thread
+// runs the encoder and passes the output to the callback. When the encoder is busy, the latest frame replaces the waiting one.
 // No managed memory is allocated for a frame.
 public sealed unsafe class H264Encoder : IDisposable
 {
@@ -192,20 +192,8 @@ public sealed unsafe class H264Encoder : IDisposable
 
         lock (inputSync)
         {
-            if (stopping || released || faulted)
-            {
-                return false;
-            }
-
-            var slot = AcquireInput();
-            if (slot == NoInput)
-            {
-                Interlocked.Increment(ref droppedFrames);
-                return false;
-            }
-
-            var buffer = inputBuffers[slot];
-            if (MediaFoundation.Lock(buffer, out var data, out _) < 0)
+            var data = LockInput(out var slot);
+            if (data == null)
             {
                 return false;
             }
@@ -225,24 +213,90 @@ public sealed unsafe class H264Encoder : IDisposable
             }
             finally
             {
-                MediaFoundation.Unlock(buffer);
+                MediaFoundation.Unlock(inputBuffers[slot]);
             }
 
-            MediaFoundation.SetCurrentLength(buffer, frameLength);
-            MediaFoundation.SetSampleTime(inputSamples[slot], timestamp, duration);
-            Volatile.Write(ref inputStates[slot], InputPending);
-
-            // The input the encoder has not taken yet is replaced
-            var previous = Interlocked.Exchange(ref pending, slot);
-            if (previous != NoInput)
-            {
-                Volatile.Write(ref inputStates[previous], InputFree);
-                Interlocked.Increment(ref droppedFrames);
-            }
+            Submit(slot, timestamp);
         }
 
         inputArrived.Set();
         return true;
+    }
+
+    // YUY2 of the size of the options, converted to NV12 in the same range straight into the input sample.
+    // Returns false like Encode.
+    public bool EncodeYuy2(ReadOnlySpan<byte> yuy2, int stride, long timestamp)
+    {
+        var width = options.Width;
+        var height = options.Height;
+        if ((stride < width * 2) || (yuy2.Length < ((height - 1) * stride) + (width * 2)))
+        {
+            throw new ArgumentException("Invalid source.", nameof(yuy2));
+        }
+
+        lock (inputSync)
+        {
+            var data = LockInput(out var slot);
+            if (data == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var ySize = width * height;
+                ImageConverter.Yuy2ToNv12(yuy2, stride, new Span<byte>(data, ySize), width, new Span<byte>(data + ySize, ySize / 2), width, width, height);
+            }
+            finally
+            {
+                MediaFoundation.Unlock(inputBuffers[slot]);
+            }
+
+            Submit(slot, timestamp);
+        }
+
+        inputArrived.Set();
+        return true;
+    }
+
+    // In inputSync: a free input locked for writing, or null when the frame is dropped or the encoder takes no frames
+    private byte* LockInput(out int slot)
+    {
+        slot = NoInput;
+        if (stopping || released || faulted)
+        {
+            return null;
+        }
+
+        var free = AcquireInput();
+        if (free == NoInput)
+        {
+            Interlocked.Increment(ref droppedFrames);
+            return null;
+        }
+
+        if (MediaFoundation.Lock(inputBuffers[free], out var data, out _) < 0)
+        {
+            return null;
+        }
+
+        slot = free;
+        return data;
+    }
+
+    // In inputSync: the filled input replaces the one the encoder has not taken yet
+    private void Submit(int slot, long timestamp)
+    {
+        MediaFoundation.SetCurrentLength(inputBuffers[slot], frameLength);
+        MediaFoundation.SetSampleTime(inputSamples[slot], timestamp, duration);
+        Volatile.Write(ref inputStates[slot], InputPending);
+
+        var previous = Interlocked.Exchange(ref pending, slot);
+        if (previous != NoInput)
+        {
+            Volatile.Write(ref inputStates[previous], InputFree);
+            Interlocked.Increment(ref droppedFrames);
+        }
     }
 
     // A free input, or a submitted one the encoder has released (the state is not changed until the input is filled)

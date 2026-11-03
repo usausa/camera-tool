@@ -24,7 +24,7 @@ public sealed class StreamService : IHostedService, IDisposable
     private readonly FrameHeaderWriter headerWriter;
 
     // Full range (JFIF), capture thread only
-    private readonly Nv12Planes planes = new(true);
+    private readonly Nv12Planes planes = new();
 
     private readonly FramePool pool = new();
 

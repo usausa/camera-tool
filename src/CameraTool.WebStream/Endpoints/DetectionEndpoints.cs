@@ -122,11 +122,11 @@ public static class DetectionEndpoints
     // Area
     //--------------------------------------------------------------------------------
 
-    private static Ok<AreaData> HandleArea(AreaService area) =>
-        TypedResults.Ok(AreaData.From(area.Current));
+    private static Ok<DetectionAreaData> HandleArea(AreaService area) =>
+        TypedResults.Ok(DetectionAreaData.From(area.Current));
 
     // Applied to the next frame and saved to the file (500 when the file cannot be written, the area is used until the server stops)
-    private static Results<NoContent, BadRequest, ProblemHttpResult> HandleAreaUpdate(AreaData request, AreaService area)
+    private static Results<NoContent, BadRequest, ProblemHttpResult> HandleAreaUpdate(DetectionAreaData request, AreaService area)
     {
         if (!request.TryGetArea(out var value))
         {

@@ -3,6 +3,7 @@ namespace CameraTool.WebStream.Components;
 using System.Runtime.InteropServices;
 
 using CameraTool.Capture;
+using CameraTool.Vision;
 using CameraTool.WebStream.Settings;
 
 public sealed class VideoSource : IHostedService, IDisposable

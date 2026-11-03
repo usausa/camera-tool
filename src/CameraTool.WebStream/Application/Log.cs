@@ -149,14 +149,12 @@ internal static partial class Log
         double sentMax,
         double bitrate);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Detection: enabled=[{enabled}], detect=[{detectFps:F1}], preprocess=[{preprocessTime:F3}/{preprocessTimeMax:F3}], inference=[{inferenceTime:F2}/{inferenceTimeMax:F2}], faces=[{faces}]")]
-    public static partial void DebugDetectionStatistics(this ILogger logger, bool enabled, double detectFps, double preprocessTime, double preprocessTimeMax, double inferenceTime, double inferenceTimeMax, int faces);
+    // name: Detection or Object, countName: faces or objects
+    [LoggerMessage(Level = LogLevel.Debug, Message = "{name}: enabled=[{enabled}], detect=[{detectFps:F1}], preprocess=[{preprocessTime:F3}/{preprocessTimeMax:F3}], inference=[{inferenceTime:F2}/{inferenceTimeMax:F2}], {countName}=[{count}]")]
+    public static partial void DebugDetectorStatistics(this ILogger logger, string name, bool enabled, double detectFps, double preprocessTime, double preprocessTimeMax, double inferenceTime, double inferenceTimeMax, string countName, int count);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Motion: enabled=[{enabled}], gate=[{gate}], moving=[{moving}], level=[{level:F1}], time=[{time:F3}/{timeMax:F3}]")]
     public static partial void DebugMotionStatistics(this ILogger logger, bool enabled, bool gate, bool moving, double level, double time, double timeMax);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Object: enabled=[{enabled}], detect=[{detectFps:F1}], preprocess=[{preprocessTime:F3}/{preprocessTimeMax:F3}], inference=[{inferenceTime:F2}/{inferenceTimeMax:F2}], objects=[{objects}]")]
-    public static partial void DebugObjectStatistics(this ILogger logger, bool enabled, double detectFps, double preprocessTime, double preprocessTimeMax, double inferenceTime, double inferenceTimeMax, int objects);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Statistics: format=[{format}], clients=[{clients}], capture=[{captureFps:F1}], encode=[{encodeFps:F1}], send=[{sendFps:F1}], skip=[{skipFps:F1}], captureLatency=[{captureLatency:F2}/{captureLatencyMax:F2}], convert=[{convertTime:F3}/{convertTimeMax:F3}], encodeTime=[{encodeTime:F2}/{encodeTimeMax:F2}], streamLatency=[{streamLatency:F2}/{streamLatencyMax:F2}], sendStart=[{sendStart:F2}/{sendStartMax:F2}], sent=[{sent:F2}/{sentMax:F2}], size=[{size:F1}], cpu=[{cpuUsage:F2}], allocated=[{allocated:F1}], gc=[{gc0:F1}/{gc1:F1}/{gc2:F1}]")]
     public static partial void DebugStatistics(

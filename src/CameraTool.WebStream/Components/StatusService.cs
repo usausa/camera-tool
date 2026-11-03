@@ -1,5 +1,7 @@
 namespace CameraTool.WebStream.Components;
 
+using CameraTool.Vision;
+
 // Statistics updated every second
 public sealed class StatusService : BackgroundService
 {
@@ -161,23 +163,13 @@ public sealed class StatusService : BackgroundService
             H264SentLatency = LatencyValue.From(h264Hub.TakeSentLatency()),
             H264Bitrate = (counters.H264EncodedBytes - last.H264EncodedBytes) * 8 / BitsPerKilobit / elapsed,
             H264Buffers = h264.AllocatedFrames,
-            DetectionEnabled = detection.IsEnabled,
-            DetectionError = detection.ErrorMessage,
-            DetectFps = (counters.Detected - last.Detected) / elapsed,
-            PreprocessTime = LatencyValue.From(detection.TakePreprocessTime()),
-            InferenceTime = LatencyValue.From(detection.TakeInferenceTime()),
-            Faces = detection.FaceCount,
+            Faces = CreateDetector(detection, counters.Detected - last.Detected, elapsed),
             MotionEnabled = motion.IsEnabled,
             MotionGate = gate.IsEnabled,
             Moving = motion.IsEnabled && motion.IsMoving,
             MotionLevel = motion.Info.Level * 100,
             MotionTime = LatencyValue.From(motion.TakeProcessTime()),
-            ObjectEnabled = objectDetection.IsEnabled,
-            ObjectError = objectDetection.ErrorMessage,
-            ObjectFps = (counters.ObjectDetected - last.ObjectDetected) / elapsed,
-            ObjectPreprocessTime = LatencyValue.From(objectDetection.TakePreprocessTime()),
-            ObjectInferenceTime = LatencyValue.From(objectDetection.TakeInferenceTime()),
-            Objects = objectDetection.ObjectCount,
+            Objects = CreateDetector(objectDetection, counters.ObjectDetected - last.ObjectDetected, elapsed),
             AreaVersion = area.Version,
             AreaCells = area.Current.CellCount,
             CpuUsage = (counters.ProcessorTime - last.ProcessorTime).TotalSeconds / elapsed / Environment.ProcessorCount * 100,
@@ -233,14 +225,7 @@ public sealed class StatusService : BackgroundService
             status.H264SentLatency.Average,
             status.H264SentLatency.Max,
             status.H264Bitrate);
-        log.DebugDetectionStatistics(
-            status.DetectionEnabled,
-            status.DetectFps,
-            status.PreprocessTime.Average,
-            status.PreprocessTime.Max,
-            status.InferenceTime.Average,
-            status.InferenceTime.Max,
-            status.Faces);
+        WriteDetectorLog("Detection", "faces", status.Faces);
         log.DebugMotionStatistics(
             status.MotionEnabled,
             status.MotionGate,
@@ -248,15 +233,31 @@ public sealed class StatusService : BackgroundService
             status.MotionLevel,
             status.MotionTime.Average,
             status.MotionTime.Max);
-        log.DebugObjectStatistics(
-            status.ObjectEnabled,
-            status.ObjectFps,
-            status.ObjectPreprocessTime.Average,
-            status.ObjectPreprocessTime.Max,
-            status.ObjectInferenceTime.Average,
-            status.ObjectInferenceTime.Max,
-            status.Objects);
+        WriteDetectorLog("Object", "objects", status.Objects);
     }
+
+    private static DetectorStatus CreateDetector(IDetectionStatistics detector, long detected, double elapsed) =>
+        new()
+        {
+            Enabled = detector.IsEnabled,
+            Error = detector.ErrorMessage,
+            Fps = detected / elapsed,
+            PreprocessTime = LatencyValue.From(detector.TakePreprocessTime()),
+            InferenceTime = LatencyValue.From(detector.TakeInferenceTime()),
+            Count = detector.Count
+        };
+
+    private void WriteDetectorLog(string name, string countName, DetectorStatus detector) =>
+        log.DebugDetectorStatistics(
+            name,
+            detector.Enabled,
+            detector.Fps,
+            detector.PreprocessTime.Average,
+            detector.PreprocessTime.Max,
+            detector.InferenceTime.Average,
+            detector.InferenceTime.Max,
+            countName,
+            detector.Count);
 
     private readonly record struct Counters(
         long Timestamp,

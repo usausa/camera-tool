@@ -47,9 +47,6 @@ public sealed class H264StreamService : IHostedService, IDisposable
     // Encoder thread only (one encoder runs at a time)
     private readonly FrameHeaderWriter headerWriter;
 
-    // Range of the frame (written to the stream), capture thread only
-    private readonly Nv12Planes planes = new(false);
-
     private readonly FramePool pool = new();
 
     // Guards the encoder against the release while a frame is passed
@@ -369,17 +366,18 @@ public sealed class H264StreamService : IHostedService, IDisposable
         }
     }
 
-    // In the lock
+    // In the lock. The encoder takes the range of the frame (written to the stream).
     private void Encode(H264Encoder current, in FrameBuffer frame)
     {
         var start = Stopwatch.GetTimestamp();
+        var format = frame.PixelFormat;
+        if ((format != VideoPixelFormat.Nv12) && (format != VideoPixelFormat.Yuy2))
+        {
+            return;
+        }
+
         try
         {
-            if (!planes.TryGet(frame, out var y, out var yStride, out var uv, out var uvStride))
-            {
-                return;
-            }
-
             // The capture time (100 ns units) is returned with the output and identifies the frame
             var timestamp = frame.CaptureTime.Ticks;
             lock (pendingSync)
@@ -388,7 +386,15 @@ public sealed class H264StreamService : IHostedService, IDisposable
                 pendingIndex = (pendingIndex + 1) % PendingCount;
             }
 
-            current.Encode(y, yStride, uv, uvStride, timestamp);
+            if (format == VideoPixelFormat.Yuy2)
+            {
+                // Converted into the input sample of the encoder
+                current.EncodeYuy2(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, timestamp);
+            }
+            else
+            {
+                current.Encode(frame.GetPlaneSpan(frame.Plane0), frame.Plane0.Stride, frame.GetPlaneSpan(frame.Plane1), frame.Plane1.Stride, timestamp);
+            }
         }
         catch (ArgumentException ex)
         {

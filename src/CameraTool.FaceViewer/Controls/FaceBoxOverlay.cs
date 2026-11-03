@@ -31,7 +31,7 @@ public sealed partial class FaceBoxOverlay : FrameworkElement
 
     private FaceDetectionService? attachedSource;
 
-    private FaceDetectionInfo info;
+    private DetectionInfo info;
 
     [DependencyProperty(PropertyChanged = nameof(OnSourceChanged))]
     public partial FaceDetectionService? Source { get; set; }

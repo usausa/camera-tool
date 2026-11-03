@@ -3,6 +3,7 @@ namespace CameraTool.FaceViewer.Components;
 using System.Diagnostics.CodeAnalysis;
 
 using CameraTool.Capture;
+using CameraTool.Vision;
 
 public sealed class FrameSlot
 {

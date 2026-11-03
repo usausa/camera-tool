@@ -4,7 +4,7 @@ using Microsoft.ML.OnnxRuntime;
 
 // Ultra-Light-Fast-Generic-Face-Detector (version-RFB-320)
 // Inputs and outputs are bound to pre-allocated buffers, so detection does not allocate
-public sealed class FaceDetector : IDisposable
+public sealed class FaceDetector : IDetector<FaceBox>
 {
     private const string ScoresName = "scores";
 
