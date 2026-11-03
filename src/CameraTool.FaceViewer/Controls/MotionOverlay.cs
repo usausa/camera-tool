@@ -4,8 +4,8 @@ using System.Windows.Media.Imaging;
 
 using BunnyTail.XamlProperty;
 
-using CameraTool.FaceViewer.Components;
 using CameraTool.FaceViewer.Helpers;
+using CameraTool.FaceViewer.Services;
 using CameraTool.Vision;
 
 // Draws the moving cells in the same layout as VideoView.

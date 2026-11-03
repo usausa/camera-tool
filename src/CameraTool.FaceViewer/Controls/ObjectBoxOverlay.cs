@@ -2,8 +2,8 @@ namespace CameraTool.FaceViewer.Controls;
 
 using BunnyTail.XamlProperty;
 
-using CameraTool.FaceViewer.Components;
 using CameraTool.FaceViewer.Helpers;
+using CameraTool.FaceViewer.Services;
 using CameraTool.Vision;
 
 // Draws object boxes in the same layout as VideoView, in the color of the class group,

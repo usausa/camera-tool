@@ -1,7 +1,7 @@
 namespace CameraTool.FaceViewer.Settings;
 
 using CameraTool.Capture;
-using CameraTool.FaceViewer.Components;
+using CameraTool.FaceViewer.Services;
 
 public sealed class CameraSettings
 {

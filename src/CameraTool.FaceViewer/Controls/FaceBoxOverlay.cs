@@ -2,8 +2,8 @@ namespace CameraTool.FaceViewer.Controls;
 
 using BunnyTail.XamlProperty;
 
-using CameraTool.FaceViewer.Components;
 using CameraTool.FaceViewer.Helpers;
+using CameraTool.FaceViewer.Services;
 using CameraTool.Vision;
 
 // Draws face boxes in the same layout as VideoView, with the confidence labels of BoxLabels.

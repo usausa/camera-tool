@@ -6,6 +6,7 @@ using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 
 using CameraTool.WebStream.Components;
+using CameraTool.WebStream.Services;
 
 public sealed class StreamEndpointsTests
 {

@@ -2,7 +2,7 @@ namespace CameraTool.FaceViewer;
 
 using BunnyTail.DependencyInjection;
 
-using CameraTool.FaceViewer.Components;
+using CameraTool.FaceViewer.Services;
 using CameraTool.FaceViewer.Settings;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -59,7 +59,7 @@ public static class ApplicationExtensions
         builder.Services.AddOptions<ObjectSettings>().BindConfiguration("Object").ValidateDataAnnotations().ValidateOnStart();
         builder.Services.AddSingleton(static p => p.GetRequiredService<IOptions<ObjectSettings>>().Value);
 
-        // Components (the frame is handled in the order of the motion, the face and the object detection)
+        // Service (the frame is handled in the order of the motion, the face and the object detection)
         builder.Services.AddSingleton<VideoSource>();
         builder.Services.AddHostedService(static p => p.GetRequiredService<VideoSource>());
         builder.Services.AddSingleton<AreaService>();

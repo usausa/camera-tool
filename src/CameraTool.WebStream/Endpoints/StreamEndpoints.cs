@@ -3,7 +3,7 @@ namespace CameraTool.WebStream.Endpoints;
 using System.Buffers;
 using System.Net.WebSockets;
 
-using CameraTool.WebStream.Components;
+using CameraTool.WebStream.Services;
 
 using Microsoft.AspNetCore.Http.Features;
 

@@ -5,7 +5,7 @@ using System.Windows.Media.Imaging;
 
 using BunnyTail.XamlProperty;
 
-using CameraTool.FaceViewer.Components;
+using CameraTool.FaceViewer.Services;
 using CameraTool.Vision;
 
 // Darkens the cells outside the detection area in the same layout as VideoView, and edits the area while IsEditing.

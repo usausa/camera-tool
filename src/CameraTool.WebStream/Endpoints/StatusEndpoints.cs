@@ -1,6 +1,6 @@
 namespace CameraTool.WebStream.Endpoints;
 
-using CameraTool.WebStream.Components;
+using CameraTool.WebStream.Services;
 
 using Microsoft.AspNetCore.Http.HttpResults;
 

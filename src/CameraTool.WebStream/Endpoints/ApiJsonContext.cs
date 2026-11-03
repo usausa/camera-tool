@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using CameraTool.Vision;
-using CameraTool.WebStream.Components;
+using CameraTool.WebStream.Services;
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(StreamStatus))]

@@ -3,8 +3,8 @@ namespace CameraTool.FaceViewer;
 using System.Windows.Threading;
 
 using CameraTool.Capture;
-using CameraTool.FaceViewer.Components;
 using CameraTool.FaceViewer.Controls;
+using CameraTool.FaceViewer.Services;
 using CameraTool.FaceViewer.Settings;
 using CameraTool.Vision;
 
