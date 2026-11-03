@@ -66,7 +66,7 @@ public sealed class StreamStatus
 
     public bool H264Enabled { get; init; }
 
-    // Encoder used last
+    // Encoder in use, null while none is created
     public string? H264Encoder { get; init; }
 
     public bool H264Hardware { get; init; }

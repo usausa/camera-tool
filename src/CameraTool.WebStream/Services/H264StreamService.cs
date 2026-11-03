@@ -97,7 +97,7 @@ public sealed class H264StreamService : IHostedService, IDisposable
 
     public bool IsEnabled => settings.Enable;
 
-    // Encoder used last
+    // Encoder in use, null while none is created (before the first client, after the idle time or a failure)
     public string? EncoderName { get; private set; }
 
     public bool IsHardware { get; private set; }
@@ -180,6 +180,7 @@ public sealed class H264StreamService : IHostedService, IDisposable
             stopped = true;
             var current = encoder;
             encoder = null;
+            ClearEncoderName();
             task = replaceTask;
             return current;
         }
@@ -234,8 +235,16 @@ public sealed class H264StreamService : IHostedService, IDisposable
         }
 
         encoder = null;
+        ClearEncoderName();
         encoderFormat = format;
         replaceTask = Task.Run(() => ReplaceEncoder(previous, format));
+    }
+
+    // In the lock: no encoder in use (the status shows it as not running)
+    private void ClearEncoderName()
+    {
+        EncoderName = null;
+        IsHardware = false;
     }
 
     private void ReplaceEncoder(H264Encoder? previous, EncoderFormat format)

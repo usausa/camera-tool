@@ -312,7 +312,7 @@ async function updateServerStats() {
     serverRows.sentLatency.textContent = formatTime(status.sentLatency);
     serverRows.jpegSize.textContent = `${status.jpegSize.toFixed(1)} KB`;
     serverRows.buffers.textContent = `${status.buffers}`;
-    serverRows.h264.textContent = status.h264Error ?? (status.h264Enabled ? (status.h264Encoder !== null ? `${status.h264Encoder} (${status.h264Hardware ? 'hardware' : 'software'})` : 'Not started') : 'Off');
+    serverRows.h264.textContent = status.h264Error ?? (status.h264Enabled ? (status.h264Encoder !== null ? `${status.h264Encoder} (${status.h264Hardware ? 'hardware' : 'software'})` : 'Not running') : 'Off');
     serverRows.h264Clients.textContent = `${status.h264Clients}`;
     serverRows.h264Encode.textContent = formatFps(status.h264EncodeFps);
     serverRows.h264Send.textContent = formatFps(status.h264SendFps);
