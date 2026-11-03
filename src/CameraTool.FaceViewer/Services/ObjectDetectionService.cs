@@ -23,8 +23,6 @@ public sealed class ObjectDetectionService : IHostedService, IDisposable, IDetec
 
     private readonly VideoSource videoSource;
 
-    private readonly DetectionGate gate;
-
     private readonly DetectionWorker<ObjectBox> worker;
 
     // Raised on the detection thread, and on the thread that clears the results
@@ -54,8 +52,7 @@ public sealed class ObjectDetectionService : IHostedService, IDisposable, IDetec
         this.log = log;
         this.settings = settings;
         this.videoSource = videoSource;
-        this.gate = gate;
-        worker = new DetectionWorker<ObjectBox>("Object detection", MaxObjects, TimeSpan.FromMilliseconds(settings.Interval), Load, () => area.Current)
+        worker = new DetectionWorker<ObjectBox>("Object detection", MaxObjects, TimeSpan.FromMilliseconds(settings.Interval), gate.IsIdle, Load, () => area.Current)
         {
             IsEnabled = settings.Enable
         };
@@ -142,9 +139,7 @@ public sealed class ObjectDetectionService : IHostedService, IDisposable, IDetec
 
     private void OnFrameCaptured(object? sender, FrameCapturedEventArgs e)
     {
-        if (!worker.IsEnabled ||
-            gate.IsIdle(worker.LastPreparedTimestamp) ||
-            (worker.TryBeginPrepare() is not { } detector))
+        if (worker.TryBeginPrepare() is not { } detector)
         {
             return;
         }

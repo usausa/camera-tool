@@ -147,6 +147,44 @@ public sealed class DetectionWorkerTests
     }
 
     [Fact]
+    public void SkipsInputWhileCallerSkips()
+    {
+        // Arrange (as the motion gate while there is no motion)
+        using var detector = new FakeDetector(LeftBox);
+        var skipping = true;
+        var timestamps = new List<long>();
+        using var worker = CreateWorker(detector, TimeSpan.Zero, skip: x =>
+        {
+            timestamps.Add(x);
+            return skipping;
+        });
+        using var detected = new SemaphoreSlim(0);
+        worker.Detected += (_, _) => detected.Release();
+        worker.IsEnabled = true;
+        worker.Start();
+        Assert.True(SpinWait.SpinUntil(() => worker.IsAvailable, Timeout));
+
+        // Act
+        var whileSkipping = worker.TryBeginPrepare();
+        skipping = false;
+        var start = Stopwatch.GetTimestamp();
+        var afterSkipping = worker.TryBeginPrepare();
+        worker.EndPrepare(true, 1, 640, 480);
+        Assert.True(detected.Wait(Timeout, TestContext.Current.CancellationToken));
+        skipping = true;
+        var afterDetection = worker.TryBeginPrepare();
+
+        // Assert (the caller is given the time of the last prepared input)
+        Assert.Null(whileSkipping);
+        Assert.Same(detector, afterSkipping);
+        Assert.Null(afterDetection);
+        Assert.Equal(3, timestamps.Count);
+        Assert.Equal(0, timestamps[0]);
+        Assert.Equal(0, timestamps[1]);
+        Assert.True(timestamps[2] >= start);
+    }
+
+    [Fact]
     public void ClearedResultsAreNotPublished()
     {
         // Arrange (the inference waits for the release)
@@ -181,7 +219,7 @@ public sealed class DetectionWorkerTests
         // Arrange
         using var detector = new FakeDetector(LeftBox);
         var loads = 0;
-        using var worker = new DetectionWorker<FaceBox>("Test", 4, TimeSpan.Zero, () =>
+        using var worker = new DetectionWorker<FaceBox>("Test", 4, TimeSpan.Zero, static _ => false, () =>
         {
             Interlocked.Increment(ref loads);
             return detector;
@@ -207,7 +245,7 @@ public sealed class DetectionWorkerTests
     {
         // Arrange (the load fails)
         var loads = 0;
-        using var worker = new DetectionWorker<FaceBox>("Test", 4, TimeSpan.Zero, () =>
+        using var worker = new DetectionWorker<FaceBox>("Test", 4, TimeSpan.Zero, static _ => false, () =>
         {
             Interlocked.Increment(ref loads);
             return null;
@@ -250,10 +288,10 @@ public sealed class DetectionWorkerTests
     // Helper
     //--------------------------------------------------------------------------------
 
-    private static DetectionWorker<FaceBox> CreateWorker(FakeDetector detector, TimeSpan interval, DetectionArea? area = null)
+    private static DetectionWorker<FaceBox> CreateWorker(FakeDetector detector, TimeSpan interval, DetectionArea? area = null, Func<long, bool>? skip = null)
     {
         var current = area ?? DetectionArea.Full;
-        return new DetectionWorker<FaceBox>("Test", 4, interval, () => detector, () => current);
+        return new DetectionWorker<FaceBox>("Test", 4, interval, skip ?? (static _ => false), () => detector, () => current);
     }
 
     // Returns the same boxes for any input

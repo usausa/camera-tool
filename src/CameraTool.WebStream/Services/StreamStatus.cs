@@ -5,6 +5,9 @@ using CameraTool.Vision;
 // Statistics of the face or object detection (the same items for both)
 public sealed class DetectorStatus
 {
+    // Default of the status before the first statistics (shared, the values are not changed)
+    public static DetectorStatus Empty { get; } = new();
+
     public bool Enabled { get; init; }
 
     // Set when the model cannot be loaded
@@ -103,7 +106,7 @@ public sealed class StreamStatus
 
     public int H264Buffers { get; init; }
 
-    public DetectorStatus Faces { get; init; } = new();
+    public DetectorStatus Faces { get; init; } = DetectorStatus.Empty;
 
     public bool MotionEnabled { get; init; }
 
@@ -118,7 +121,7 @@ public sealed class StreamStatus
 
     public LatencyValue MotionTime { get; init; }
 
-    public DetectorStatus Objects { get; init; } = new();
+    public DetectorStatus Objects { get; init; } = DetectorStatus.Empty;
 
     // Incremented when the detection area changes
     public int AreaVersion { get; init; }

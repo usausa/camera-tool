@@ -53,20 +53,28 @@ public sealed class FaceDetector : IDetector<FaceBox>
         session = OnnxSession.Create(modelPath, options.IntraOpNumThreads, options.InterOpNumThreads);
         try
         {
-            var inputName = session.InputNames[0];
-            var inputDimensions = session.InputMetadata[inputName].Dimensions;
-            if ((inputDimensions.Length != 4) || (inputDimensions[1] != 3))
+            // The shapes are checked before they are used, so that another model fails as an unsupported model
+            if ((session.InputNames.Count == 0) ||
+                (session.InputMetadata[session.InputNames[0]].Dimensions is not [1, 3, > 0, > 0]))
             {
                 throw new InvalidOperationException("Unsupported model input.");
             }
 
+            var inputName = session.InputNames[0];
+            var inputDimensions = session.InputMetadata[inputName].Dimensions;
             InputHeight = inputDimensions[2];
             InputWidth = inputDimensions[3];
 
+            if (session.OutputNames.Count < 2)
+            {
+                throw new InvalidOperationException("Unsupported model output.");
+            }
+
             var scoresName = FindOutput(session, ScoresName, 0);
             var boxesName = FindOutput(session, BoxesName, 1);
-            var anchors = session.OutputMetadata[scoresName].Dimensions[1];
-            if ((session.OutputMetadata[boxesName].Dimensions[1] != anchors) || (anchors <= 0))
+            if ((session.OutputMetadata[scoresName].Dimensions is not [1, > 0 and var anchors, 2]) ||
+                (session.OutputMetadata[boxesName].Dimensions is not [1, var boxAnchors, 4]) ||
+                (boxAnchors != anchors))
             {
                 throw new InvalidOperationException("Unsupported model output.");
             }

@@ -80,8 +80,7 @@ public sealed unsafe class H264Encoder : IDisposable
 
     private volatile bool keyFrameRequested;
 
-    private volatile bool faulted;
-
+    // HRESULT of the failure (negative), 0 while the encoder works
     private int faultCode;
 
     private long droppedFrames;
@@ -96,7 +95,7 @@ public sealed unsafe class H264Encoder : IDisposable
     public long DroppedFrames => Interlocked.Read(ref droppedFrames);
 
     // The encoder stopped working (for example the device was lost or reset) and encodes no more frames
-    public bool IsFaulted => faulted;
+    public bool IsFaulted => Volatile.Read(ref faultCode) != 0;
 
     // HRESULT of the failure
     public int FaultCode => Volatile.Read(ref faultCode);
@@ -263,7 +262,7 @@ public sealed unsafe class H264Encoder : IDisposable
     private byte* LockInput(out int slot)
     {
         slot = NoInput;
-        if (stopping || released || faulted)
+        if (stopping || released || IsFaulted)
         {
             return null;
         }
@@ -341,7 +340,7 @@ public sealed unsafe class H264Encoder : IDisposable
 
                 Initialize();
             }
-            catch (Exception ex) when (ex is COMException or InvalidOperationException or ArgumentException)
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
                 failure = ex;
                 return;
@@ -382,7 +381,7 @@ public sealed unsafe class H264Encoder : IDisposable
         var requests = 0;
         var outputs = 0;
         var draining = false;
-        while (!faulted)
+        while (!IsFaulted)
         {
             var hr = MediaFoundation.GetEvent(events, requests == 0, out var type, out var status);
             if (hr == MediaFoundation.NoEventsAvailable)
@@ -449,7 +448,7 @@ public sealed unsafe class H264Encoder : IDisposable
     // The synchronous encoder outputs the frame for each input
     private void RunSync()
     {
-        while (!stopping && !faulted)
+        while (!stopping && !IsFaulted)
         {
             inputArrived.WaitOne();
             if (Submit())
@@ -460,7 +459,7 @@ public sealed unsafe class H264Encoder : IDisposable
             }
         }
 
-        if (faulted)
+        if (IsFaulted)
         {
             return;
         }
@@ -472,11 +471,7 @@ public sealed unsafe class H264Encoder : IDisposable
         }
     }
 
-    private void Fault(int code)
-    {
-        Volatile.Write(ref faultCode, code);
-        faulted = true;
-    }
+    private void Fault(int code) => Volatile.Write(ref faultCode, code);
 
     // False when no frame is waiting, a failed input faults the encoder
     private bool Submit()
@@ -676,7 +671,7 @@ public sealed unsafe class H264Encoder : IDisposable
             // Some encoders apply the codec values before the types, others after them
             candidateCodecApi = MediaFoundation.QueryInterface(candidate, MediaFoundation.IidCodecApi);
             SetCodecValues(candidateCodecApi);
-            if (!TrySetTypes(candidate))
+            if (!TrySetTypes(candidate, ref lastError))
             {
                 return false;
             }
@@ -687,6 +682,7 @@ public sealed unsafe class H264Encoder : IDisposable
                 candidateEvents = MediaFoundation.QueryInterface(candidate, MediaFoundation.IidEventGenerator);
                 if (candidateEvents == IntPtr.Zero)
                 {
+                    lastError = MediaFoundation.NoInterface;
                     return false;
                 }
             }
@@ -744,8 +740,8 @@ public sealed unsafe class H264Encoder : IDisposable
         MediaFoundation.SetCodecValue(candidateCodecApi, MediaFoundation.BPictureCount, 0u);
     }
 
-    // Output type first (an encoder offers the input types for the output type)
-    private bool TrySetTypes(IntPtr candidate)
+    // Output type first (an encoder offers the input types for the output type), lastError: HRESULT of the rejected type
+    private bool TrySetTypes(IntPtr candidate, ref int lastError)
     {
         var width = options.Width;
         var height = options.Height;
@@ -755,8 +751,10 @@ public sealed unsafe class H264Encoder : IDisposable
             MediaFoundation.SetUInt32(output, MediaFoundation.AverageBitrate, (uint)options.Bitrate);
             MediaFoundation.SetUInt32(output, MediaFoundation.Profile, MediaFoundation.ProfileMain);
             SetColor(output);
-            if (MediaFoundation.SetOutputType(candidate, output) < 0)
+            var hr = MediaFoundation.SetOutputType(candidate, output);
+            if (hr < 0)
             {
+                lastError = hr;
                 return false;
             }
         }
@@ -769,10 +767,14 @@ public sealed unsafe class H264Encoder : IDisposable
         try
         {
             SetColor(input);
-            if (MediaFoundation.SetInputType(candidate, input) >= 0)
+            var hr = MediaFoundation.SetInputType(candidate, input);
+            if (hr >= 0)
             {
                 return true;
             }
+
+            // Kept when no type offered by the encoder is accepted either
+            lastError = hr;
         }
         finally
         {
@@ -795,7 +797,13 @@ public sealed unsafe class H264Encoder : IDisposable
                     MediaFoundation.SetUInt64(available, MediaFoundation.FrameSize, ((ulong)(uint)width << 32) | (uint)height);
                     MediaFoundation.SetUInt64(available, MediaFoundation.FrameRate, ((ulong)(uint)options.FrameRate << 32) | 1);
                     SetColor(available);
-                    return MediaFoundation.SetInputType(candidate, available) >= 0;
+                    var hr = MediaFoundation.SetInputType(candidate, available);
+                    if (hr < 0)
+                    {
+                        lastError = hr;
+                    }
+
+                    return hr >= 0;
                 }
             }
             finally

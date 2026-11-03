@@ -107,4 +107,9 @@ public sealed class FaceDetectorTests
         Assert.Equal(240, detector.InputHeight);
         Assert.Equal(0, count);
     }
+
+    // Another model is rejected as unsupported (the detection services catch InvalidOperationException)
+    [Fact]
+    public void ThrowsWhenModelIsUnsupported() =>
+        Assert.Throws<InvalidOperationException>(() => new FaceDetector(Path.Combine(AppContext.BaseDirectory, "dfine-nano-coco.onnx"), new FaceDetectorOptions()));
 }

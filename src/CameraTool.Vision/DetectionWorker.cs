@@ -7,7 +7,7 @@ public readonly record struct DetectionInfo(long Sequence, int FrameWidth, int F
 
 // Runs a detector on a dedicated thread for the frames of the capture thread, shared by the face and object detection.
 // The capture thread prepares the input only when the detector is idle (TryBeginPrepare and EndPrepare), so detection
-// never blocks capture, and the input is prepared at most once per interval.
+// never blocks capture, and the input is prepared at most once per interval and not for the frames the caller skips (no motion).
 // The detection thread runs the inference, removes the boxes whose center is outside the detection area and publishes the results.
 // The detector is loaded on the detection thread when the detection is enabled first (not retried after a failure).
 public sealed class DetectionWorker<TBox> : IDisposable
@@ -19,11 +19,11 @@ public sealed class DetectionWorker<TBox> : IDisposable
 
     private const int StateReady = 2;
 
-    private const int StateRunning = 3;
-
     private readonly string name;
 
     private readonly TimeSpan interval;
+
+    private readonly Func<long, bool> skip;
 
     private readonly Func<IDetector<TBox>?> load;
 
@@ -53,6 +53,9 @@ public sealed class DetectionWorker<TBox> : IDisposable
 
     // Stopwatch timestamp, capture thread only
     private long prepareTimestamp;
+
+    // Stopwatch timestamp of the last prepared input, capture thread only
+    private long lastPreparedTimestamp;
 
     private DetectionInfo pending;
 
@@ -102,15 +105,14 @@ public sealed class DetectionWorker<TBox> : IDisposable
         }
     }
 
-    // Stopwatch timestamp of the last prepared input, capture thread only
-    public long LastPreparedTimestamp { get; private set; }
-
     // name: of the thread, capacity: maximum number of the results, interval: minimum time between the inputs,
+    // skip: true when no input is prepared for the frame, given the Stopwatch timestamp of the last prepared input (for example while there is no motion),
     // load: creates the detector on the detection thread (null when it fails), area: the current detection area
-    public DetectionWorker(string name, int capacity, TimeSpan interval, Func<IDetector<TBox>?> load, Func<DetectionArea> area)
+    public DetectionWorker(string name, int capacity, TimeSpan interval, Func<long, bool> skip, Func<IDetector<TBox>?> load, Func<DetectionArea> area)
     {
         this.name = name;
         this.interval = interval;
+        this.skip = skip;
         this.load = load;
         this.area = area;
         workResults = new TBox[capacity];
@@ -223,7 +225,8 @@ public sealed class DetectionWorker<TBox> : IDisposable
                 continue;
             }
 
-            if (Interlocked.CompareExchange(ref state, StateRunning, StateReady) != StateReady)
+            // Ready until the results are published, so the capture thread prepares no input during the inference
+            if (Volatile.Read(ref state) != StateReady)
             {
                 continue;
             }
@@ -247,12 +250,13 @@ public sealed class DetectionWorker<TBox> : IDisposable
     // Capture thread
     //--------------------------------------------------------------------------------
 
-    // The detector to prepare the input of, null while the detection is disabled, not loaded, busy or within the interval
+    // The detector to prepare the input of, null while the detection is disabled, not loaded, busy, within the interval or skipped
     public IDetector<TBox>? TryBeginPrepare()
     {
         if (!enabled ||
             (Volatile.Read(ref detector) is not { } current) ||
-            (Stopwatch.GetElapsedTime(LastPreparedTimestamp) < interval) ||
+            (Stopwatch.GetElapsedTime(lastPreparedTimestamp) < interval) ||
+            skip(lastPreparedTimestamp) ||
             (Interlocked.CompareExchange(ref state, StatePreparing, StateIdle) != StateIdle))
         {
             return null;
@@ -271,7 +275,7 @@ public sealed class DetectionWorker<TBox> : IDisposable
             return;
         }
 
-        LastPreparedTimestamp = prepareTimestamp;
+        lastPreparedTimestamp = prepareTimestamp;
         preprocessTime.Add(Stopwatch.GetElapsedTime(prepareTimestamp));
         pending = new DetectionInfo(sequence, frameWidth, frameHeight, 0);
         pendingGeneration = Volatile.Read(ref generation);

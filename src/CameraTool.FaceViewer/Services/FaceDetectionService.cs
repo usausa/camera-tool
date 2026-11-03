@@ -22,8 +22,6 @@ public sealed class FaceDetectionService : IHostedService, IDisposable, IDetecti
 
     private readonly VideoSource videoSource;
 
-    private readonly DetectionGate gate;
-
     private readonly DetectionWorker<FaceBox> worker;
 
     // Raised on the detection thread, and on the thread that clears the results
@@ -54,8 +52,7 @@ public sealed class FaceDetectionService : IHostedService, IDisposable, IDetecti
         this.log = log;
         this.settings = settings;
         this.videoSource = videoSource;
-        this.gate = gate;
-        worker = new DetectionWorker<FaceBox>("Face detection", MaxFaces, TimeSpan.Zero, Load, () => area.Current)
+        worker = new DetectionWorker<FaceBox>("Face detection", MaxFaces, TimeSpan.Zero, gate.IsIdle, Load, () => area.Current)
         {
             IsEnabled = settings.Enable
         };
@@ -142,9 +139,7 @@ public sealed class FaceDetectionService : IHostedService, IDisposable, IDetecti
 
     private void OnFrameCaptured(object? sender, FrameCapturedEventArgs e)
     {
-        if (!worker.IsEnabled ||
-            gate.IsIdle(worker.LastPreparedTimestamp) ||
-            (worker.TryBeginPrepare() is not { } detector))
+        if (worker.TryBeginPrepare() is not { } detector)
         {
             return;
         }

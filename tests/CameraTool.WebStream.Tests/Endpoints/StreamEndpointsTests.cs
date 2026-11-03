@@ -1,6 +1,7 @@
 namespace CameraTool.WebStream.Endpoints;
 
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Net;
 using System.Net.WebSockets;
 using System.Runtime.InteropServices;
@@ -17,6 +18,9 @@ public sealed class StreamEndpointsTests
     private static readonly byte[] FirstPartHeader = "--frame\r\nContent-Type: image/jpeg\r\n\r\n"u8.ToArray();
 
     private static readonly byte[] NextPartHeader = "\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n"u8.ToArray();
+
+    // Longer than the interval of the key frame requests on the server (500 ms)
+    private static readonly TimeSpan KeyFrameRequestInterval = TimeSpan.FromMilliseconds(600);
 
     //--------------------------------------------------------------------------------
     // WebSocket
@@ -74,7 +78,8 @@ public sealed class StreamEndpointsTests
                     following.Add(await ReceiveAsync(socket, cancellationToken).ConfigureAwait(true));
                 }
 
-                // Assert
+                // Assert (a frame that follows without a gap is not a key frame,
+                // after a frame skipped by the server, for example under load, the stream starts again at a key frame)
                 Assert.True(IsKeyFrame(first));
                 AssertAnnexB(first.AsSpan(ReadUInt16(first, 2)));
                 var previous = ReadUInt32(first, 8);
@@ -82,8 +87,12 @@ public sealed class StreamEndpointsTests
                 {
                     var sequence = ReadUInt32(message, 8);
                     Assert.True(sequence > previous);
+                    if (sequence == previous + 1)
+                    {
+                        Assert.False(IsKeyFrame(message));
+                    }
+
                     previous = sequence;
-                    Assert.False(IsKeyFrame(message));
                     AssertAnnexB(message.AsSpan(ReadUInt16(message, 2)));
                 }
             });
@@ -102,12 +111,19 @@ public sealed class StreamEndpointsTests
                     await ReceiveAsync(socket, cancellationToken).ConfigureAwait(true);
                 }
 
-                // Act
-                await socket.SendAsync("key"u8.ToArray().AsMemory(), WebSocketMessageType.Text, true, cancellationToken).ConfigureAwait(true);
+                // Act (requested again until a key frame arrives, as the viewer does:
+                // the server ignores a request within its interval from a request for a frame it skipped)
                 var received = 0;
                 var keyFrame = false;
-                while (!keyFrame && (received < 30))
+                var requested = 0L;
+                while (!keyFrame && (received < 90))
                 {
+                    if ((requested == 0) || (Stopwatch.GetElapsedTime(requested) > KeyFrameRequestInterval))
+                    {
+                        await socket.SendAsync("key"u8.ToArray().AsMemory(), WebSocketMessageType.Text, true, cancellationToken).ConfigureAwait(true);
+                        requested = Stopwatch.GetTimestamp();
+                    }
+
                     keyFrame = IsKeyFrame(await ReceiveAsync(socket, cancellationToken).ConfigureAwait(true));
                     received++;
                 }

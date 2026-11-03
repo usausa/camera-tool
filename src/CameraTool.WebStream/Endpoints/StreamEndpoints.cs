@@ -2,6 +2,7 @@ namespace CameraTool.WebStream.Endpoints;
 
 using System.Buffers;
 using System.Net.WebSockets;
+using System.Runtime.CompilerServices;
 
 using CameraTool.WebStream.Services;
 
@@ -284,6 +285,8 @@ public static class StreamEndpoints
 
         public void Dispose() => registration.Dispose();
 
+        // The state of a send that waits (a large frame) is pooled instead of allocated for each frame
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
         public async ValueTask SendAsync(ReadOnlyMemory<byte> message)
         {
             // Full fence: either the cancel sees the send, or the send sees the cancel

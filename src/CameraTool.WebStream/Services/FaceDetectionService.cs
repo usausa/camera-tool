@@ -23,8 +23,6 @@ public sealed class FaceDetectionService : IHostedService, IDisposable, IDetecti
 
     private readonly StreamHubs hubs;
 
-    private readonly DetectionGate gate;
-
     private readonly DetectionWorker<FaceBox> worker;
 
     public bool IsEnabled
@@ -52,8 +50,7 @@ public sealed class FaceDetectionService : IHostedService, IDisposable, IDetecti
         this.settings = settings;
         this.source = source;
         this.hubs = hubs;
-        this.gate = gate;
-        worker = new DetectionWorker<FaceBox>("Face detection", MaxFaces, TimeSpan.Zero, Load, () => area.Current)
+        worker = new DetectionWorker<FaceBox>("Face detection", MaxFaces, TimeSpan.Zero, gate.IsIdle, Load, () => area.Current)
         {
             IsEnabled = settings.Enable
         };
@@ -125,10 +122,7 @@ public sealed class FaceDetectionService : IHostedService, IDisposable, IDetecti
     private void OnFrameCaptured(object? sender, FrameCapturedEventArgs e)
     {
         // The results are used only by the stream
-        if (!worker.IsEnabled ||
-            !hubs.HasClients ||
-            gate.IsIdle(worker.LastPreparedTimestamp) ||
-            (worker.TryBeginPrepare() is not { } detector))
+        if (!hubs.HasClients || (worker.TryBeginPrepare() is not { } detector))
         {
             return;
         }

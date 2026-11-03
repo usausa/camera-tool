@@ -115,6 +115,7 @@ internal sealed class StreamTestServer : IAsyncDisposable
         catch
         {
             await app.DisposeAsync().ConfigureAwait(true);
+            Directory.Delete(directory, true);
             throw;
         }
     }

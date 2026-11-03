@@ -21,6 +21,8 @@ internal static unsafe partial class MediaFoundation
 
     public const int NoEventsAvailable = unchecked((int)0xC00D3E80);
 
+    public const int NoInterface = unchecked((int)0x80004002);
+
     // MFT_ENUM_FLAG
     public const uint EnumSync = 0x1;
 

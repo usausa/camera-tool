@@ -61,7 +61,7 @@ dotnet run --project src/CameraTool.WebStream
 | キー | 内容 | 既定値 |
 |:--|:--|:--|
 | `Urls` | 待ち受けるアドレス | `http://localhost:5080` |
-| `Camera:Name` / `Format` / `Width` / `Height` / `Fps` | FaceViewer と同じ | `ELECOM 2MP Webcam` / `Yuy2` / `640` / `480` / `30` |
+| `Camera:Name` / `Format` / `Width` / `Height` / `Fps` | FaceViewer と同じ。`Format` が `Yuy2` / `Nv12` 以外だと起動しない | `ELECOM 2MP Webcam` / `Yuy2` / `640` / `480` / `30` |
 | `Stream:Quality` | JPEG の品質(1〜100) | `80` |
 | `H264:Enable` | H.264 の配信(`/ws-h264`)の ON/OFF。エンコーダーはクライアントがいる間だけ動く | `true` |
 | `H264:Bitrate` | ビットレート(kbps、CBR)。0 なら解像度で決める(640x480 まで 4000、1280x720 まで 8000、それより大きいと 16000) | `0` |

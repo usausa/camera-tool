@@ -53,7 +53,9 @@ public static class DetectionAreaFile
             return DetectionAreaFileResult.NotFound;
         }
 
-        var data = JsonSerializer.Deserialize(File.ReadAllBytes(path), DetectionAreaJsonContext.Default.DetectionAreaData);
+        // Read through a stream, which skips the BOM of a file saved as UTF-8 with a BOM (the span overload does not)
+        using var stream = File.OpenRead(path);
+        var data = JsonSerializer.Deserialize(stream, DetectionAreaJsonContext.Default.DetectionAreaData);
         if ((data is null) || !data.TryGetArea(out var loaded))
         {
             return DetectionAreaFileResult.Invalid;

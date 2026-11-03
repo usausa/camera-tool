@@ -130,8 +130,8 @@ const area = {
     rows: 24,
     mask: new Uint8Array(96).fill(0xff),
     cells: 768,
-    // Version of the server area that the mask is from (-1: not loaded)
-    version: -1,
+    // Version of the server area that the mask is from (null: not loaded, any number can be a version)
+    version: null,
     // Not synced with the server until this time after it is sent
     syncTime: 0,
     loading: false,
@@ -637,7 +637,7 @@ async function saveArea() {
 
     // The area of the server is loaded again
     area.syncTime = 0;
-    area.version = -1;
+    area.version = null;
 }
 
 // The layer is drawn again only when the mask, the size or the editing changes, and copied onto each frame
@@ -1015,7 +1015,8 @@ function resetDecoder() {
     h264.unsupported = false;
 }
 
-// Decoding is given up until the next connection
+// Decoding is given up until the mode is selected again, and the connection is closed so that the server stops encoding
+// (closeSocket clears the socket first, so the connection is not opened again)
 function setUnsupported(e) {
     console.warn('H.264 is not supported.', e);
     setState(`H.264 is not supported by this browser: ${e.message}`);
@@ -1023,6 +1024,9 @@ function setUnsupported(e) {
     h264.decoder = null;
     h264.codec = null;
     h264.frames.clear();
+    if (mode === 'h264') {
+        closeSocket();
+    }
 }
 
 // Any text message asks the server for a key frame

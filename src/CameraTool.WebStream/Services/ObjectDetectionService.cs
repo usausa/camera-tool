@@ -24,8 +24,6 @@ public sealed class ObjectDetectionService : IHostedService, IDisposable, IDetec
 
     private readonly StreamHubs hubs;
 
-    private readonly DetectionGate gate;
-
     private readonly DetectionWorker<ObjectBox> worker;
 
     public bool IsEnabled
@@ -53,8 +51,7 @@ public sealed class ObjectDetectionService : IHostedService, IDisposable, IDetec
         this.settings = settings;
         this.source = source;
         this.hubs = hubs;
-        this.gate = gate;
-        worker = new DetectionWorker<ObjectBox>("Object detection", MaxObjects, TimeSpan.FromMilliseconds(settings.Interval), Load, () => area.Current)
+        worker = new DetectionWorker<ObjectBox>("Object detection", MaxObjects, TimeSpan.FromMilliseconds(settings.Interval), gate.IsIdle, Load, () => area.Current)
         {
             IsEnabled = settings.Enable
         };
@@ -126,10 +123,7 @@ public sealed class ObjectDetectionService : IHostedService, IDisposable, IDetec
     private void OnFrameCaptured(object? sender, FrameCapturedEventArgs e)
     {
         // The results are used only by the stream
-        if (!worker.IsEnabled ||
-            !hubs.HasClients ||
-            gate.IsIdle(worker.LastPreparedTimestamp) ||
-            (worker.TryBeginPrepare() is not { } detector))
+        if (!hubs.HasClients || (worker.TryBeginPrepare() is not { } detector))
         {
             return;
         }

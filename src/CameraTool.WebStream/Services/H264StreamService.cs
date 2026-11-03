@@ -2,7 +2,6 @@ namespace CameraTool.WebStream.Services;
 
 using System.Diagnostics;
 using System.Numerics;
-using System.Runtime.InteropServices;
 
 using CameraTool.Capture;
 using CameraTool.Vision;
@@ -285,7 +284,7 @@ public sealed class H264StreamService : IHostedService, IDisposable
                 }
             }
         }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             log.ErrorH264EncoderCreateFailed(ex, width, height);
             lock (encoderSync)

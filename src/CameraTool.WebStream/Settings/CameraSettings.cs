@@ -7,6 +7,8 @@ public sealed class CameraSettings
     // Empty: first device
     public string Name { get; set; } = string.Empty;
 
+    // The streams encode only these formats, another value stops the start
+    [AllowedValues(VideoPixelFormat.Yuy2, VideoPixelFormat.Nv12)]
     public VideoPixelFormat Format { get; set; } = VideoPixelFormat.Yuy2;
 
     [Range(1, 8192)]

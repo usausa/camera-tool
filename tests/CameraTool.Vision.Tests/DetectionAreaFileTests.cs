@@ -1,5 +1,6 @@
 namespace CameraTool.Vision;
 
+using System.Text;
 using System.Text.Json;
 
 public sealed class DetectionAreaFileTests : IDisposable
@@ -63,6 +64,22 @@ public sealed class DetectionAreaFileTests : IDisposable
         // Assert
         Assert.Equal(DetectionAreaFileResult.Loaded, result);
         Assert.Equal(0, area.CellCount);
+    }
+
+    [Fact]
+    public void FileWithByteOrderMarkIsRead()
+    {
+        // Arrange (UTF-8 with a BOM, as some editors save the file)
+        var area = DetectionArea.Full.WithCells(0, 0, LastColumn, 11, false);
+        DetectionAreaFile.Write(AreaPath, area);
+        File.WriteAllBytes(AreaPath, [.. Encoding.UTF8.GetPreamble(), .. File.ReadAllBytes(AreaPath)]);
+
+        // Act
+        var result = DetectionAreaFile.Read(AreaPath, out var read);
+
+        // Assert
+        Assert.Equal(DetectionAreaFileResult.Loaded, result);
+        Assert.Equal(area.ToRows(), read.ToRows());
     }
 
     [Fact]
