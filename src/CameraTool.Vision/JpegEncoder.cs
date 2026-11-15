@@ -260,7 +260,7 @@ public sealed unsafe partial class JpegEncoder : IDisposable
     }
 
     // Ends with the EOI marker
-    private static bool IsComplete(Span<byte> destination, int length) =>
+    private static bool IsComplete(ReadOnlySpan<byte> destination, int length) =>
         (length >= 4) && (length <= destination.Length) && (destination[length - 2] == 0xFF) && (destination[length - 1] == 0xD9);
 
     private static void** Vtbl(IntPtr pointer) => *(void***)pointer;

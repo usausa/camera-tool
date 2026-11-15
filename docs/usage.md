@@ -102,9 +102,9 @@ xunit.v3(Microsoft Testing Platform)。ビルドしたテストの exe を直接
 
 ```
 dotnet build tests/CameraTool.Vision.Tests
-tests/CameraTool.Vision.Tests/bin/Debug/net10.0-windows10.0.26100.0/CameraTool.Vision.Tests.exe
+tests/CameraTool.Vision.Tests/bin/Debug/net11.0-windows10.0.26100.0/CameraTool.Vision.Tests.exe
 dotnet build tests/CameraTool.WebStream.Tests
-tests/CameraTool.WebStream.Tests/bin/Debug/net10.0-windows10.0.26100.0/CameraTool.WebStream.Tests.exe
+tests/CameraTool.WebStream.Tests/bin/Debug/net11.0-windows10.0.26100.0/CameraTool.WebStream.Tests.exe
 ```
 
 ## 🧠 同梱のモデル

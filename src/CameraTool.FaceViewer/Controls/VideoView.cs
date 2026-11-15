@@ -146,7 +146,7 @@ public sealed partial class VideoView : FrameworkElement
         source.ReportDisplayed(slot);
     }
 
-    private static unsafe void CopyToBitmap(FrameSlot slot, WriteableBitmap target)
+    private static void CopyToBitmap(FrameSlot slot, WriteableBitmap target)
     {
         target.Lock();
         try

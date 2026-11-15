@@ -53,12 +53,15 @@ public static class VideoDeviceCatalog
             return [];
         }
 
-        return [.. source.SupportedFormats
-            .Select(FormatHelper.ToVideoFormat)
-            .Where(static x => x.PixelFormat != VideoPixelFormat.Unknown)
-            .Distinct()
-            .OrderBy(static x => x.PixelFormat)
-            .ThenBy(static x => x.Width * x.Height)
-            .ThenBy(static x => x.FrameRate)];
+        return
+        [
+            .. source.SupportedFormats
+                .Select(FormatHelper.ToVideoFormat)
+                .Where(static x => x.PixelFormat != VideoPixelFormat.Unknown)
+                .Distinct()
+                .OrderBy(static x => x.PixelFormat)
+                .ThenBy(static x => x.Width * x.Height)
+                .ThenBy(static x => x.FrameRate)
+        ];
     }
 }

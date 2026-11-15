@@ -27,7 +27,7 @@ public readonly struct FrameBuffer : IEquatable<FrameBuffer>
 
     public bool IsEmpty => (buffer == IntPtr.Zero) || (Length == 0);
 
-    public unsafe ReadOnlySpan<byte> Span => IsEmpty ? [] : new ReadOnlySpan<byte>((void*)buffer, Length);
+    public ReadOnlySpan<byte> Span => IsEmpty ? [] : new ReadOnlySpan<byte>((void*)buffer, Length);
 
     internal FrameBuffer(
         IntPtr buffer,
