@@ -13,8 +13,7 @@ public static class VideoDeviceCatalog
         var devices = new List<VideoDevice>();
         foreach (var group in groups)
         {
-            // Color only (exclude infrared and sensor groups)
-            if ((group.SourceInfos.Count != 1) || (group.SourceInfos[0].SourceKind != MediaFrameSourceKind.Color))
+            if (!IsColorCamera([.. group.SourceInfos.Select(static x => x.SourceKind)]))
             {
                 continue;
             }
@@ -28,6 +27,9 @@ public static class VideoDeviceCatalog
 
         return devices;
     }
+
+    internal static bool IsColorCamera(IReadOnlyCollection<MediaFrameSourceKind> kinds) =>
+        kinds.Contains(MediaFrameSourceKind.Color) && kinds.All(static x => x is MediaFrameSourceKind.Color or MediaFrameSourceKind.Custom);
 
     private static async Task<IReadOnlyList<VideoFormat>> GetFormatsAsync(MediaFrameSourceGroup group)
     {
