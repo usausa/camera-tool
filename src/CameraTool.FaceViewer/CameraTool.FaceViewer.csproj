@@ -8,7 +8,6 @@
     <SatelliteResourceLanguages>en;ja</SatelliteResourceLanguages>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <CodeAnalysisRuleSet>..\..\Analyzers.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
 
   <ItemGroup>

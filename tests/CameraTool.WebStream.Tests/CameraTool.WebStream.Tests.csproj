@@ -4,7 +4,6 @@
     <TargetFramework>net11.0-windows10.0.26100.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <RootNamespace>CameraTool.WebStream</RootNamespace>
-    <CodeAnalysisRuleSet>..\..\Analyzers.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
 
   <PropertyGroup>
